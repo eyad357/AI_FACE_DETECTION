@@ -58,7 +58,7 @@ circular dependency.
 ```
 Vision   → Models, Config, Logger
 Decision → Models, Config, Logger
-Guide    → Models, Config, Logger
+Guide    → Config, Logger, (single symbol: app.decision.event_manager.GuideTopic)
 Robot    → Models, Config, Logger
 UI       → Models, Guide
 Main     → all application modules (future orchestration)
@@ -70,6 +70,9 @@ Forbidden:
 Vision → Robot        (never)
 Robot  → Vision        (never)
 Models → Vision/Robot  (never)
+Models → Decision/Guide (never — app/models/schemas.py has zero app-internal imports)
+Guide  → Vision/Robot  (never)
+Guide  → app.decision.state_manager (never — Guide never depends on Decision's state machine)
 ```
 
 ## Decision layer (implemented in Phase 2)
@@ -135,6 +138,70 @@ Decision also reads the existing `CONFIG.vision.detection_frames_required`
 (published by Vision in Phase 1 for exactly this purpose) to gate the
 `WAITING -> GREETING` transition.
 
+## Guide layer (implemented in Phase 3)
+
+Turns a requested `GuideTopic` into structured content. Guide answers
+"what information should be provided?" — it does not decide whether a
+visitor exists, does not manage application state, does not control
+the robot, does not perform speech synthesis, and does not render UI.
+
+### Guide input
+
+`app.decision.event_manager.GuideTopic` — the **existing** enum, reused
+as-is. No second topic enum was created. Guide imports exactly this one
+symbol from `app.decision`; it never imports
+`app.decision.state_manager` and has no knowledge of Decision's state
+machine, transitions, or `DecisionEvent` handling.
+
+### Guide output
+
+`app.guide.guide_service.GuideResponse`:
+
+- `topic: Optional[GuideTopic]`
+- `title: str`
+- `summary: str`
+- `sections: List[str]`
+- `spoken_text: str` — plain text; Guide does not synthesize speech
+- `timestamp: datetime`
+
+No equivalent shared model existed in `app/models/schemas.py` prior to
+this phase, so `GuideResponse` was added as a new, additive contract.
+It was deliberately placed in `app/guide/guide_service.py` (the
+producing module) rather than `app/models/schemas.py`, mirroring the
+existing precedent set by `DecisionEvent` (which lives in
+`app.decision.event_manager`, not `app.models`). Placing it in
+`app/models/schemas.py` would have required that file to import
+`app.decision` (for the `GuideTopic` type), which violates its existing,
+explicit "no app-internal imports" contract — so no change was made to
+`app/models/schemas.py` in this phase.
+
+### Guide public API
+
+```python
+from app.guide import GuideService
+from app.decision.event_manager import GuideTopic
+
+response = GuideService().get_topic_content(GuideTopic.AI_PROJECTS)
+```
+
+Invalid/unknown topics return a controlled `GuideResponse`
+(`title="Topic Unavailable"`) rather than raising.
+
+### Future flow (main.py, not implemented yet)
+
+```
+DecisionEvent (TOPIC_SELECTED)
+    → main.py extracts the selected GuideTopic
+    → GuideService.get_topic_content(topic)
+    → GuideResponse
+    → main.py
+        ├── UI (display title/summary/sections)
+        └── Robot Controller (speak spoken_text)
+```
+
+Guide does not perform this orchestration itself — `app/main.py`
+remains the only orchestration layer.
+
 ## Future Robot layer (owned by Person 2, not implemented in Phase 1 or Phase 2)
 
 Will expose robot behavior (speech, gestures, movement) independently
@@ -167,7 +234,8 @@ the public `FaceDetector.detect()` / `Camera.open()/read()/release()`
 APIs should be treated as stable (Phase 1). As of Phase 2, the Decision
 public API — `StateManager.process()/complete_greeting()/select_topic()
 /complete_session()/reset()`, `ApplicationState`, `DecisionEventType`,
-`DecisionEvent`, and `GuideTopic` — is also treated as stable. If a
-breaking change becomes necessary in a later phase, it must be
-explicitly identified, documented here, and explained — not changed
-silently.
+`DecisionEvent`, and `GuideTopic` — is also treated as stable. As of
+Phase 3, `GuideResponse` and `GuideService.get_topic_content()` are
+also treated as stable. If a breaking change becomes necessary in a
+later phase, it must be explicitly identified, documented here, and
+explained — not changed silently.
