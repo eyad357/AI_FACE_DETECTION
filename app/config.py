@@ -86,12 +86,37 @@ class LoggingConfig:
 
 
 @dataclass(frozen=True)
+class DecisionConfig:
+    """
+    Settings for the Decision layer (app.decision).
+
+    Note: VisionConfig.detection_frames_required already exists and is
+    published by Vision for future consumers, but Vision does not use it
+    itself. Decision reads that existing value directly (see
+    state_manager.py) rather than duplicating it here.
+    """
+
+    # Consecutive frames with detected=False required before Decision
+    # considers the visitor gone (debounces momentary missed detections).
+    visitor_lost_frames_required: int = _env_int(
+        "LABGUIDE_VISITOR_LOST_FRAMES_REQUIRED", 5
+    )
+
+    # Seconds to remain in COOLDOWN after a session completes before a
+    # newly-arriving visitor can trigger another greeting.
+    greeting_cooldown_seconds: float = _env_float(
+        "LABGUIDE_GREETING_COOLDOWN_SECONDS", 10.0
+    )
+
+
+@dataclass(frozen=True)
 class AppConfig:
     """Top-level configuration bundle for the whole application."""
 
     camera: CameraConfig = CameraConfig()
     vision: VisionConfig = VisionConfig()
     logging: LoggingConfig = LoggingConfig()
+    decision: DecisionConfig = DecisionConfig()
 
 
 # Single shared configuration instance. Import this rather than
