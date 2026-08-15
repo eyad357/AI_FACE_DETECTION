@@ -7,20 +7,20 @@ and the training offered.
 
 ## Current phase
 
-**Phase 3 — Guide module.** (Phases 1–2 — Vision and Decision — are complete and frozen.)
+**Phase 5 — Configuration hardening.** (Phases 1–4 — Vision, Decision, Guide, and a shared-models audit — are complete and frozen.)
 
 This phase delivers:
 
-- A complete, independent, testable **Guide** content/service layer (`app/guide`).
-- Structured topic content (`app/guide/content.py`) and a `GuideService.get_topic_content()` API returning a `GuideResponse`.
-- Reuse of the existing `GuideTopic` contract (already defined in `app/decision/event_manager.py`) — no duplicate topic enum was created.
-- 19 new Guide tests, on top of the existing Vision/Decision/model tests.
+- Explicit validation on every configuration value in `app/config.py` (camera settings, detection thresholds, cooldown/stability timings, logging level).
+- A `ConfigurationError` raised with a clear message (setting name + invalid value) instead of silently falling back on malformed environment variables — see [Configuration Module](#configuration-module).
+- 35 new configuration tests, on top of the existing Vision/Decision/Guide/model tests.
+- No new `RobotConfig`/`GuideConfig` sections — neither module currently reads any config value, so none were invented.
 
-Phase 1's Vision and Phase 2's Decision were **not modified** in this
-phase — see [Guide Module](#guide-module) below for what's new.
+Phases 1–4 (Vision, Decision, Guide, and shared models) were **not
+modified** in this phase — only `app/config.py` and its tests changed.
 
-Robot control, UI, and full `main.py` orchestration are still
-**intentionally not implemented** — see [Future roadmap](#future-roadmap).
+Full `main.py` orchestration is still **intentionally not
+implemented** — see [Future roadmap](#future-roadmap).
 
 ## Architecture
 
@@ -288,6 +288,54 @@ The current `FaceDetector` implementation (OpenCV Haar cascade) does
 always `None`. This is intentional — no fake confidence values are
 invented.
 
+## Configuration Module
+
+`app/config.py` answers "what settings should the modules use?" — it is
+infrastructure, not orchestration: it never starts Vision, never
+instantiates Decision/Guide, and never runs the application (that
+remains `app/main.py`'s job).
+
+### Single source of truth
+
+All configuration lives in `app/config.py` as typed, frozen dataclasses
+grouped by consumer (`CameraConfig`, `VisionConfig`, `LoggingConfig`,
+`DecisionConfig`), composed into one `AppConfig`, exposed as the single
+shared `CONFIG` instance:
+
+```python
+from app.config import CONFIG
+
+CONFIG.camera.index               # int
+CONFIG.vision.haar_scale_factor   # float
+CONFIG.decision.greeting_cooldown_seconds  # float
+```
+
+No per-module config files exist (`app/vision/config.py` etc.) and none
+are needed — Robot and Guide currently read zero values from `CONFIG`,
+so no `RobotConfig`/`GuideConfig` section has been added; one would be
+added only once either module genuinely needs a setting.
+
+### Environment overrides
+
+Every value can be overridden via an environment variable (e.g.
+`LABGUIDE_CAMERA_INDEX=1`, `LABGUIDE_GREETING_COOLDOWN_SECONDS=15`) —
+useful for CI or a different machine without touching code. An unset or
+empty variable falls back to the documented default.
+
+### Validation
+
+Every setting is validated when its dataclass is constructed (camera
+index/width/height/fps, confidence thresholds, frame-count thresholds,
+cooldown seconds, log level, etc.). Two distinct failure modes raise a
+clear `ConfigurationError` naming the setting and the invalid value,
+rather than silently falling back:
+
+- An environment variable is **set but unparseable** (e.g. `LABGUIDE_CAMERA_INDEX=abc`).
+- A value is **out of its valid range** (e.g. a negative camera index, or `haar_scale_factor <= 1.0`, which would otherwise fail inside OpenCV with a confusing error).
+
+An unset/empty environment variable is not an error — it legitimately
+uses the default.
+
 ## Installation
 
 ```bash
@@ -306,8 +354,9 @@ Camera and detection tests are designed to run without physical camera
 hardware. Two Vision tests that require real face photographs are
 skipped automatically unless fixture images are added — see
 [`tests/fixtures/README.md`](tests/fixtures/README.md). Decision tests
-(`tests/test_decision.py`) and Guide tests (`tests/test_guide.py`) use
-only synthetic data and require no camera, Robot, UI, or database.
+(`tests/test_decision.py`), Guide tests (`tests/test_guide.py`), and
+configuration tests (`tests/test_config.py`) use only synthetic data
+and require no camera, Robot, UI, or database.
 
 ## Running the Vision demo
 

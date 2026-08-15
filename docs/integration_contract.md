@@ -227,6 +227,33 @@ IDLE
 STOP
 ```
 
+## Configuration layer (hardened in Phase 5)
+
+`app/config.py` answers "what settings should the modules use?" — it is
+infrastructure, not a communication contract and not an orchestrator.
+It never starts Vision, never instantiates Decision/Guide, and never
+runs the application.
+
+Single source of truth: `CameraConfig`, `VisionConfig`, `LoggingConfig`,
+`DecisionConfig`, composed into `AppConfig`, exposed as `CONFIG`. No
+`RobotConfig`/`GuideConfig` exists — neither module currently reads any
+`CONFIG` value (verified by inspection), so none was invented.
+
+As of Phase 5, every field is validated at construction time, and the
+environment-variable parsing helpers (`_env_int`/`_env_float`) raise a
+`ConfigurationError` naming the setting and invalid value when an
+environment variable is set but unparseable, rather than silently
+falling back to the default. An unset/empty variable still falls back
+to the default — that is not an error.
+
+```
+Vision      → Config
+Decision    → Config
+Guide       → Config (not currently used)
+Robot       → Config (not currently used)
+Config  ──X──> Vision / Decision / Guide / Robot   (never)
+```
+
 ## Stability of this contract
 
 Once published, `DetectionResult` / `FaceDetection` / `BoundingBox` and
