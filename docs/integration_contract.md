@@ -59,7 +59,7 @@ circular dependency.
 Vision   → Models, Config, Logger
 Decision → Models, Config, Logger
 Guide    → Config, Logger, (single symbol: app.decision.event_manager.GuideTopic)
-Robot    → Models, Config, Logger
+Robot    → Logger (Config not currently needed; see Robot layer section)
 UI       → Models, Guide
 Main     → all application modules (future orchestration)
 ```
@@ -69,6 +69,9 @@ Forbidden:
 ```
 Vision → Robot        (never)
 Robot  → Vision        (never)
+Robot  → Decision      (never)
+Robot  → Guide         (never)
+Robot  → main.py       (never)
 Models → Vision/Robot  (never)
 Models → Decision/Guide (never — app/models/schemas.py has zero app-internal imports)
 Guide  → Vision/Robot  (never)
@@ -202,30 +205,100 @@ DecisionEvent (TOPIC_SELECTED)
 Guide does not perform this orchestration itself — `app/main.py`
 remains the only orchestration layer.
 
-## Future Robot layer (owned by Person 2, not implemented in Phase 1 or Phase 2)
+## Robot layer (implemented in Phase 6)
 
-Will expose robot behavior (speech, gestures, movement) independently
-of Vision's internals. This document does **not** dictate the internal
-implementation of the Robot Controller — only the separation
-principle: Robot receives application-level commands/events, never raw
-Vision output, and never imports `app.vision`.
+Executes `RobotCommand`s — i.e. answers "HOW should the physical robot
+perform an action?" Robot does **not** decide WHEN an action should
+occur; that remains Decision's / the future `app.main` orchestrator's
+responsibility.
 
-### Conceptual future robot commands (documentation only)
+### Robot input
 
-These are documented for planning purposes only. They are **not**
-implemented, imported, or called anywhere in this phase:
+`app.robot.robot_commands.RobotCommand`:
+
+```python
+RobotCommand(
+    command_type: RobotCommandType,
+    text: Optional[str] = None,   # required for SPEAK/EXPLAIN_* commands
+    metadata: Dict[str, Any] = {},
+)
+```
+
+### Robot command vocabulary — `RobotCommandType`
+
+The exact conceptual vocabulary documented back in Phase 1, now
+formalized as a real `Enum` (values unchanged, no renaming):
 
 ```
-GREET
-WAVE
-SPEAK
-EXPLAIN_AI
-EXPLAIN_ROBOTICS
-EXPLAIN_TRAINING
-EXPLAIN_LAB
-IDLE
-STOP
+GREET, WAVE, SPEAK, EXPLAIN_AI, EXPLAIN_ROBOTICS, EXPLAIN_TRAINING,
+EXPLAIN_LAB, IDLE, STOP
 ```
+
+This is the single canonical Robot command vocabulary — do not
+duplicate it elsewhere.
+
+### Robot output — `RobotExecutionResult`
+
+```python
+RobotExecutionResult(
+    command_type: RobotCommandType,
+    success: bool,
+    message: str,
+)
+```
+
+No equivalent shared model existed anywhere in the project, and this
+result never needs to cross a module boundary (Decision/Guide never
+consume it), so — following the same pattern already used for
+`DecisionEvent` and `GuideResponse` — it lives in
+`app/robot/robot_controller.py` rather than `app/models/schemas.py`.
+
+### Robot public API
+
+```python
+from app.robot import RobotController, RobotCommand, RobotCommandType
+
+controller = RobotController()
+controller.greet()
+controller.wave()
+controller.speak("Welcome to the lab.")
+controller.execute(RobotCommand(RobotCommandType.EXPLAIN_AI, text=response.spoken_text))
+controller.stop()
+```
+
+### Backend abstraction
+
+`RobotController` delegates to a pluggable `RobotBackend`. No physical
+robot SDK exists in this project, so the default —
+`SimulatedRobotBackend` — is deterministic and hardware-free: it
+records and logs each command rather than pretending a physical action
+occurred. A real hardware backend can be swapped in later
+(`RobotController(backend=...)`) without changing the public API.
+
+### Robot does NOT
+
+- Import `app.vision`, `app.decision`, or `app.guide`.
+- Inspect `DetectionResult`, `DecisionEvent`, `ApplicationState`, or `GuideResponse`.
+- Decide *when* to greet, *what* topic to explain, or *what* to say — only *how* to deliver an already-decided command/text.
+- Read or write any `app.config` value (verified by inspection — Robot currently needs none; a `RobotConfig` section would be added only once a genuine setting is required).
+- Orchestrate Vision, Decision, or Guide, or import `app.main`.
+
+### Future flow (main.py, not implemented yet)
+
+```
+DecisionEvent (GREETING_REQUIRED)
+    → main.py maps it to RobotCommand(GREET)
+    → RobotController.execute(...)
+
+DecisionEvent (TOPIC_SELECTED)
+    → main.py extracts topic
+    → GuideService.get_topic_content(topic) → GuideResponse
+    → main.py maps GuideResponse.spoken_text to RobotCommand(EXPLAIN_AI, text=...)
+    → RobotController.execute(...)
+```
+
+Robot never bypasses `app.main` — it only ever receives a `RobotCommand`
+built and dispatched by the future orchestrator.
 
 ## Configuration layer (hardened in Phase 5)
 
@@ -263,6 +336,9 @@ public API — `StateManager.process()/complete_greeting()/select_topic()
 /complete_session()/reset()`, `ApplicationState`, `DecisionEventType`,
 `DecisionEvent`, and `GuideTopic` — is also treated as stable. As of
 Phase 3, `GuideResponse` and `GuideService.get_topic_content()` are
-also treated as stable. If a breaking change becomes necessary in a
-later phase, it must be explicitly identified, documented here, and
-explained — not changed silently.
+also treated as stable. As of Phase 6, `RobotCommandType`,
+`RobotCommand`, `RobotExecutionResult`, and the
+`RobotController.execute()/greet()/wave()/speak()/idle()/stop()` public
+API are also treated as stable. If a breaking change becomes necessary
+in a later phase, it must be explicitly identified, documented here,
+and explained — not changed silently.
