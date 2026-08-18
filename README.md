@@ -7,20 +7,18 @@ and the training offered.
 
 ## Current phase
 
-**Phase 5 — Configuration hardening.** (Phases 1–4 — Vision, Decision, Guide, and a shared-models audit — are complete and frozen.)
+**Phase 7 — Application integration / orchestration.** (Phases 1–6 — Vision, Decision, Guide, a shared-models audit, configuration hardening, and Robot — are complete and frozen.)
 
 This phase delivers:
 
-- Explicit validation on every configuration value in `app/config.py` (camera settings, detection thresholds, cooldown/stability timings, logging level).
-- A `ConfigurationError` raised with a clear message (setting name + invalid value) instead of silently falling back on malformed environment variables — see [Configuration Module](#configuration-module).
-- 35 new configuration tests, on top of the existing Vision/Decision/Guide/model tests.
-- No new `RobotConfig`/`GuideConfig` sections — neither module currently reads any config value, so none were invented.
+- `app/main.py` now contains a real orchestration layer — `ApplicationIntegration` — wiring Vision, Decision, Guide, and Robot together for the first time. This is the **only** module in the project allowed to import all four.
+- The full pipeline works end-to-end: a `DetectionResult` (real or synthetic) drives Decision's state machine; resulting `DecisionEvent`s are mapped to `RobotCommand`s (`GREETING_REQUIRED`→`GREET`, `COOLDOWN_STARTED`/`RETURN_TO_WAITING`→`IDLE`, `ERROR`→`STOP`); `EXPLANATION_REQUIRED` additionally calls `GuideService.get_topic_content()` and maps the resulting `GuideResponse.spoken_text` to the matching `EXPLAIN_*` command.
+- An optional `capture_and_handle()` wires in a real `Camera` + `FaceDetector` for a live-camera scenario; the core `handle_detection(detection_result)` API remains fully hardware-free (used by all tests).
+- 25 new integration tests, on top of the existing Vision/Decision/Guide/Robot/config tests.
+- **Zero** changes to Vision, Decision, Guide, Robot, shared models, or config — every mapping uses only contracts that already existed; nothing was renamed, redesigned, or invented.
 
-Phases 1–4 (Vision, Decision, Guide, and shared models) were **not
-modified** in this phase — only `app/config.py` and its tests changed.
-
-Full `main.py` orchestration is still **intentionally not
-implemented** — see [Future roadmap](#future-roadmap).
+See [Application Integration](#application-integration) below for the
+full flow and the exact DecisionEvent → RobotCommand mapping table.
 
 ## Architecture
 
@@ -34,14 +32,13 @@ Vision / Perception        (app/vision)         ← implemented (Phase 1, frozen
 Decision                   (app/decision)       ← implemented (Phase 2, frozen)
    │  DecisionEvent
    ▼
-Guide Service               (app/guide)         ← implemented (Phase 3)
-   │  GuideResponse
-   ▼
+main.py — ApplicationIntegration                ← implemented (Phase 7)
+   │  ├── Guide Service    (app/guide)           ← implemented (Phase 3, frozen)
+   │  │      GuideResponse
+   │  ▼
+   ├── Robot Controller    (app/robot)           ← implemented (Phase 6, frozen)
+   │
 UI / User Interaction       (app/ui)            ← placeholder
-   │
-   ▼
-Robot Controller             (app/robot)        ← placeholder (Person 2)
-   │
    ▼
 Robot Speech + Gestures
 ```
@@ -49,7 +46,7 @@ Robot Speech + Gestures
 ```
 ai-university-lab-guide/
 ├── app/
-│   ├── main.py              # future orchestration entry point (placeholder)
+│   ├── main.py              # IMPLEMENTED (Phase 7) — ApplicationIntegration orchestration layer
 │   ├── config.py            # centralized, typed configuration
 │   ├── vision/               # IMPLEMENTED (Phase 1, frozen) — perception layer
 │   │   ├── camera.py         # camera lifecycle abstraction
@@ -58,7 +55,9 @@ ai-university-lab-guide/
 │   ├── decision/             # IMPLEMENTED (Phase 2, frozen) — state machine + events
 │   │   ├── state_manager.py  # StateManager: DetectionResult → ApplicationState/DecisionEvent
 │   │   └── event_manager.py  # ApplicationState, DecisionEventType, DecisionEvent, GuideTopic
-│   ├── robot/                # placeholder — Person 2's Robot Controller
+│   ├── robot/                # IMPLEMENTED (Phase 6) — action execution layer
+│   │   ├── robot_commands.py # RobotCommandType, RobotCommand
+│   │   └── robot_controller.py # RobotController, RobotBackend, SimulatedRobotBackend
 │   ├── guide/                # IMPLEMENTED (Phase 3) — content + service layer
 │   │   ├── guide_service.py  # GuideService.get_topic_content() → GuideResponse
 │   │   └── content.py        # Static topic content, keyed by the existing GuideTopic enum
@@ -87,12 +86,13 @@ ai-university-lab-guide/
 |---|---|---|
 | `app/vision` | Observe camera frames, produce `DetectionResult` | **Implemented (Phase 1, frozen)** |
 | `app/decision` | Turn Vision output into stable, application-level events | **Implemented (Phase 2, frozen)** |
-| `app/guide` | Provide topic content based on a requested `GuideTopic` | **Implemented (Phase 3)** |
+| `app/guide` | Provide topic content based on a requested `GuideTopic` | **Implemented (Phase 3, frozen)** |
 | `app/ui` | Present guide content / status to a screen | Placeholder |
-| `app/robot` | Drive robot speech/gestures (Person 2) | Placeholder |
+| `app/robot` | Execute physical robot actions (Person 2) | **Implemented (Phase 6, frozen)** |
 | `app/models` | Shared, framework-independent data contracts | **Implemented** |
 | `app/config` | Centralized configuration | **Implemented** |
 | `app/utils/logger` | Centralized logging | **Implemented** |
+| `app/main` | Orchestrate Vision → Decision → Guide → Robot | **Implemented (Phase 7)** |
 
 ## Integration rules
 
@@ -264,6 +264,131 @@ rather than raising — normal invalid input never crashes the service.
 - Perform speech synthesis, render UI, or control the robot.
 - Orchestrate the application (that remains `app.main`'s job).
 
+## Robot Module
+
+Robot answers "how should the physical action be performed?" — it does
+**not** decide *when* to act. It is the first module owned by Person 2
+(Robotics), and this phase is its first real implementation (Phases
+1–5 only carried documentation-only placeholders for it).
+
+### Robot command vocabulary
+
+The vocabulary documented back in Phase 1 is unchanged — no command was
+renamed, removed, or added:
+
+```python
+class RobotCommandType(Enum):
+    GREET, WAVE, SPEAK, EXPLAIN_AI, EXPLAIN_ROBOTICS, EXPLAIN_TRAINING, EXPLAIN_LAB, IDLE, STOP
+```
+
+```python
+RobotCommand(
+    command_type: RobotCommandType,
+    text: Optional[str] = None,   # required (non-empty) for SPEAK/EXPLAIN_* commands
+    metadata: Dict[str, Any] = {},
+)
+```
+
+### Robot public API
+
+```python
+from app.robot import RobotController, RobotCommand, RobotCommandType
+
+controller = RobotController()
+controller.greet()
+controller.wave()
+controller.speak("Welcome to the lab.")
+controller.execute(RobotCommand(RobotCommandType.EXPLAIN_AI, text=guide_response.spoken_text))
+controller.stop()
+```
+
+Every call returns a `RobotExecutionResult(command_type, success, message)`
+— errors (empty speech text, a backend failure) are reported as
+`success=False` with a clear message rather than raising, so Robot
+fails safely. `execute()` only raises `RobotError` for a genuine
+programmer error (passing something that isn't a `RobotCommand`).
+
+### Backend abstraction — no hardware required
+
+No physical robot SDK exists in this project. `RobotController`
+delegates to a pluggable `RobotBackend`; the default,
+`SimulatedRobotBackend`, is deterministic and hardware-free — it
+records and logs each command rather than pretending a physical action
+occurred. Tests, CI, and this whole project run with zero robot
+hardware, SDK, or network access. A real backend can be swapped in
+later via `RobotController(backend=...)` without changing the public
+API.
+
+### Robot does NOT
+
+- Import `app.vision`, `app.decision`, or `app.guide`.
+- Inspect `DetectionResult`, `DecisionEvent`, `ApplicationState`, or `GuideResponse`.
+- Decide *when* to greet, *what* topic to explain, or *what* to say — only *how* to deliver an already-decided command/text.
+- Hold any educational content (that's Guide's job) or read any `app.config` value (none is currently needed).
+- Orchestrate Vision, Decision, or Guide, or import `app.main`.
+
+## Application Integration
+
+`app/main.py` — specifically `ApplicationIntegration` — is the **only**
+module allowed to import and coordinate Vision, Decision, Guide, and
+Robot together. It answers "how are all modules orchestrated?" It does
+not reimplement any of their behavior; it only calls each module's
+existing public API.
+
+### Public API
+
+```python
+from app.main import ApplicationIntegration
+from app.decision.event_manager import GuideTopic
+
+app = ApplicationIntegration()
+
+# Hardware-free core (what tests use) — feed in a DetectionResult:
+results = app.handle_detection(detection_result)
+
+# Optional: wire in a real Camera + FaceDetector for a live-camera scenario:
+app = ApplicationIntegration(camera=Camera(), detector=FaceDetector())
+results = app.capture_and_handle()
+
+# Explicit signals (mirrors StateManager's own API):
+app.complete_greeting()
+app.select_topic(GuideTopic.AI_PROJECTS)
+app.complete_session()
+app.reset()   # recover from ApplicationState.ERROR
+```
+
+Every call returns `List[RobotExecutionResult]` — whatever Robot
+commands were dispatched as a result of that step (often empty, since
+most Decision events require no Robot action).
+
+### DecisionEvent → RobotCommand mapping
+
+Only existing `RobotCommandType` values are used — nothing was
+invented for this phase:
+
+| DecisionEvent | RobotCommand |
+|---|---|
+| `GREETING_REQUIRED` | `GREET` |
+| `COOLDOWN_STARTED` | `IDLE` |
+| `RETURN_TO_WAITING` | `IDLE` |
+| `ERROR` | `STOP` |
+| `EXPLANATION_REQUIRED` | `GuideService.get_topic_content(topic)` → `EXPLAIN_AI` / `EXPLAIN_ROBOTICS` / `EXPLAIN_TRAINING` / `EXPLAIN_LAB` (with `text=spoken_text`) |
+| `NO_VISITOR`, `VISITOR_DETECTED`, `MULTIPLE_VISITORS`, `GUIDE_MENU_REQUIRED`, `TOPIC_SELECTED`, `SESSION_COMPLETED` | *(none — informational, or a UI concern)* |
+
+### Failure handling
+
+A Robot execution failure (`RobotExecutionResult.success=False`) never
+corrupts Decision state — Decision has already produced and returned
+its event by the time Robot is dispatched. Any unexpected exception
+while dispatching a single event is logged and skipped rather than
+crashing the whole batch.
+
+### What main.py does NOT do
+
+- Reimplement Vision's camera/detection logic, Decision's state machine, Guide's content, or Robot's execution/backend logic.
+- Hold Guide content strings.
+- Introduce new `RobotCommandType` or `DecisionEventType` values, or new shared models.
+
 ## DetectionResult contract
 
 Defined in `app/models/schemas.py`:
@@ -354,9 +479,12 @@ Camera and detection tests are designed to run without physical camera
 hardware. Two Vision tests that require real face photographs are
 skipped automatically unless fixture images are added — see
 [`tests/fixtures/README.md`](tests/fixtures/README.md). Decision tests
-(`tests/test_decision.py`), Guide tests (`tests/test_guide.py`), and
-configuration tests (`tests/test_config.py`) use only synthetic data
-and require no camera, Robot, UI, or database.
+(`tests/test_decision.py`), Guide tests (`tests/test_guide.py`),
+configuration tests (`tests/test_config.py`), Robot tests
+(`tests/test_robot.py`), and integration tests
+(`tests/test_integration.py`) use only synthetic data and the
+deterministic `SimulatedRobotBackend` — none require a camera, physical
+robot, UI, or database.
 
 ## Running the Vision demo
 
@@ -392,12 +520,26 @@ No web framework, database, or cloud service is used in this phase.
 
 ## Integration notes for Person 2
 
-- Implement `app/robot/robot_controller.py` and finalize `app/robot/robot_commands.py`. Your module must **never** `import app.vision`, `app.decision`, or `app.guide`.
-- The Decision layer (`app/decision`, Phase 2) emits application-level `DecisionEvent`s (`GREETING_REQUIRED`, `EXPLANATION_REQUIRED`, `SESSION_COMPLETED`, etc.) — see [Decision Module](#decision-module).
-- The Guide layer (`app/guide`, Phase 3) turns a selected `GuideTopic` into a `GuideResponse` with `spoken_text` your Robot Controller can eventually speak — see [Guide Module](#guide-module). You will receive this (or data derived from it) from the future orchestration layer, **not** by importing Guide directly.
-- The shared contracts you may depend on live in `app/models/schemas.py`; do not create your own duplicate types.
-- Centralize any Robot-specific configuration (ports, SDK settings, timeouts) in `app/config.py` following the existing pattern.
-- `app/main.py` will be extended later to wire Vision → Decision → Guide → UI → Robot together — you don't need to build that orchestration yourself.
+- `app/robot` is implemented (Phase 6) and now genuinely wired into the
+  application by `app/main.py` (Phase 7) — `RobotController`,
+  `RobotCommand`/`RobotCommandType`, and the `SimulatedRobotBackend`
+  default are all in place, tested, and driven end-to-end from Decision
+  and Guide output. See [Robot Module](#robot-module) and
+  [Application Integration](#application-integration).
+- If real hardware/SDK integration is needed later, implement a new
+  `RobotBackend` subclass (see `app/robot/robot_controller.py`) and pass
+  it to `RobotController(backend=...)`, which you can then pass into
+  `ApplicationIntegration(robot_controller=...)` — neither
+  `RobotController`'s nor `ApplicationIntegration`'s public API should
+  need to change for that.
+- Robot still never imports Decision, Guide, or `app.main` — the
+  `DecisionEvent`/`GuideResponse` → `RobotCommand` mapping lives
+  entirely in `app/main.py`, not in Robot.
+- If Robot ever needs genuine configuration (e.g. a real backend's
+  connection settings), add a `RobotConfig` section to `app/config.py`
+  following the existing `CameraConfig`/`DecisionConfig` pattern — none
+  was added in Phase 6 or 7 since nothing currently consumes one.
 
-This phase implements Vision, Decision, and Guide independently. Robot
-integration is intentionally not implemented.
+Vision, Decision, Guide, Robot, and the application integration layer
+(`app/main.py`) are all now implemented. The `app/ui` layer remains the
+only piece not yet built.
