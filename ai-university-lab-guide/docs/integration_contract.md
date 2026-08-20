@@ -305,6 +305,40 @@ Robot never bypasses `app.main` — it only ever receives a `RobotCommand`
 built and dispatched by the orchestrator (see Application Integration
 below, implemented in Phase 6/7).
 
+### Testing & extensibility (verified in Phase 9)
+
+A dedicated read-only audit (Phase 9) confirmed the existing Robot
+implementation was already sound and required no architectural change.
+The following guarantees are now explicitly test-pinned in
+`tests/test_robot.py`, none of which required changing any public
+contract:
+
+- `RobotBackend` cannot be instantiated directly, nor can an incomplete
+  subclass that doesn't implement `execute()` — the abstraction is
+  enforced structurally by Python, not just by convention.
+- Separate `RobotController`/backend instances never share state
+  (independent `SimulatedRobotBackend().history`); two controllers
+  explicitly given the *same* backend instance do share it, as
+  expected.
+- A brand-new `RobotBackend` subclass can be swapped in via
+  `RobotController(backend=...)` alone — no change to
+  `RobotController`, `RobotCommand`, `RobotCommandType`, or
+  `RobotExecutionResult` is required, and a custom backend still
+  benefits from `RobotController`'s built-in empty-speech validation
+  before it is ever called.
+- `RobotCommand` and `RobotExecutionResult` are genuinely immutable
+  (frozen dataclasses) — attempting to mutate either after creation
+  raises.
+
+**Explicitly deferred, not implemented:** a second (non-simulated)
+`RobotBackend` and a `RobotConfig` section in `app/config.py` were both
+considered during the audit and intentionally deferred — `Simulated
+RobotBackend` remains sufficient for simulation and hardware-independent
+testing, and Robot still reads zero `CONFIG` values. Both remain
+one-line-of-effort additions (`RobotController(backend=NewBackend())` /
+a new `RobotConfig` dataclass) whenever a genuine need arises, without
+touching any other module.
+
 ## Application Integration (implemented in Phase 7)
 
 `app/main.py` — specifically `ApplicationIntegration` — is the **only**
