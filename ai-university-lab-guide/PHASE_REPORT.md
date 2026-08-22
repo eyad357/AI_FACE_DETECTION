@@ -1,365 +1,390 @@
-# PHASE_REPORT — Robot Gestures
+# PHASE_REPORT — Robot Integration Adapter
 
 ## 1. Files inspected during the repository audit
 
-- Full repository tree (via `find`), including a note on repository
-  layout (see "Repository layout note" below).
+- Full repository tree (`find`), reconfirming the layout note below.
 - `app/robot/__init__.py`
 - `app/robot/robot_commands.py`
 - `app/robot/robot_controller.py`
-- `app/models/__init__.py`, `app/models/schemas.py` (skimmed for
-  shared-contract context)
-- `app/config.py` (skimmed — confirmed Robot reads no `CONFIG` value)
+- `app/decision/event_manager.py` (skimmed — confirmed `ApplicationState`
+  / `DecisionEventType` / `GuideTopic` are application-level intents,
+  not Robot commands, and are not needed by this adapter)
+- `app/guide/guide_service.py` (skimmed — confirmed Guide produces
+  `GuideResponse` content and does not touch Robot at all)
+- `app/navigation/service.py` (read in full — confirmed it is an
+  explicit, documented placeholder with no executable logic)
+- `app/ml/`, `app/dl/` (skimmed at directory level — confirmed no
+  Robot-relevant public contract lives there)
 - `app/main.py` (skimmed via `docs/integration_contract.md`'s
-  description of it, plus import-graph checks)
+  description plus import-graph checks — not modified)
+- `app/config.py` (skimmed — confirmed Robot/adapter reads no
+  `CONFIG` value)
 - `docs/integration_contract.md`
-- `docs/architecture.md`, `docs/contracts.md` (skimmed for
-  cross-references)
-- `tests/test_robot.py` (full read)
+- `tests/test_robot.py` (full read, from the prior Robot Gestures
+  phase audit, re-confirmed unchanged)
+- `tests/test_integration.py` (read — confirmed this is an existing,
+  unrelated test file for a different "integration" concept already
+  present in the repo, not an existing Robot integration adapter; see
+  section 7)
 - `app/utils/logger.py`
-- `requirements.txt`
+- Full repo search for any existing `*integration*` files/dirs
 
-### Repository layout note
+### Repository layout note (carried over, unchanged)
 
-The uploaded ZIP contains **two copies** of the project: the real
-top-level repository (`AI_FACE_DETECTION-main/app/...`,
-`AI_FACE_DETECTION-main/tests/...`, etc. — used by the top-level
-`README.md`, `requirements.txt`, and by every top-level test) and a
-nested, slightly older duplicate at
-`AI_FACE_DETECTION-main/ai-university-lab-guide/app/...` with its own
-parallel `tests/` directory. The nested copy causes a `pytest` module
-name collision (`import file mismatch`) if both are collected in the
-same run. This is a pre-existing condition of the uploaded archive,
-not something introduced or fixed by this phase — per the strict
-change rules, it was left untouched. This phase's implementation and
-tests target the **top-level** `AI_FACE_DETECTION-main/app/robot/` and
-`AI_FACE_DETECTION-main/tests/` — the copy the top-level `README.md`
-documents as canonical. All `pytest` runs reported below were run with
-`--ignore=ai-university-lab-guide` purely to avoid the pre-existing
-collision; no file inside `ai-university-lab-guide/` was inspected
-beyond confirming it is a duplicate, and none was modified.
+The uploaded ZIP still contains two copies of the project: the real
+top-level repository (`AI_FACE_DETECTION-main/app/...`) and a nested,
+older duplicate at `AI_FACE_DETECTION-main/ai-university-lab-guide/`.
+This is a pre-existing condition of the archive, not introduced or
+fixed by this phase — it was left untouched, exactly as in the prior
+Robot Gestures phase. All `pytest` runs below use
+`--ignore=ai-university-lab-guide` purely to avoid the resulting
+module-name collision; nothing inside `ai-university-lab-guide/` was
+modified.
 
-## 2. Existing Robot architecture discovered
+## 2. Existing Robot public APIs discovered
 
-- `app/robot/robot_commands.py` — defines `RobotCommandType` (Enum),
-  `SPEECH_COMMAND_TYPES`, and `RobotCommand` (frozen dataclass:
-  `command_type`, `text`, `metadata`). No dependency on Vision,
-  Decision, Guide, or Config.
-- `app/robot/robot_controller.py` — defines `RobotError`,
-  `RobotExecutionResult`, `RobotBackend` (ABC), `SimulatedRobotBackend`
-  (default, hardware-free, history-recording), and `RobotController`
-  (executes `RobotCommand`s via a pluggable `RobotBackend`, plus
-  convenience wrappers `greet()/wave()/speak()/idle()/stop()`).
-  Depends only on `app.robot.robot_commands` and
-  `app.utils.logger.get_logger`.
-- `app/robot/__init__.py` — re-exports the public Robot API:
-  `RobotCommand`, `RobotCommandType`, `RobotController`,
-  `RobotBackend`, `SimulatedRobotBackend`, `RobotExecutionResult`,
-  `RobotError`.
-- Confirmed via `docs/integration_contract.md` and `tests/test_robot.py`:
-  Robot is frozen since Phase 6, imports nothing from Vision/Decision/
-  Guide/main, reads no `app.config` value, and its only integration
-  point with the rest of the application is `app.main.ApplicationIntegration`
-  building `RobotCommand`s and calling `RobotController.execute()`.
+`app.robot` (`app/robot/__init__.py`) re-exports: `RobotCommand`,
+`RobotCommandType`, `RobotController`, `RobotBackend`,
+`SimulatedRobotBackend`, `RobotExecutionResult`, `RobotError`.
 
-## 3. Existing `RobotCommandType` discovered
+`RobotController` exposes: `execute(command: RobotCommand) ->
+RobotExecutionResult`, plus five convenience wrappers with no existing
+wrapper for the four `EXPLAIN_*` topics:
+`greet()`, `wave()`, `speak(text: str)`, `idle()`, `stop()`.
 
-```
-GREET, WAVE, SPEAK, EXPLAIN_AI, EXPLAIN_ROBOTICS, EXPLAIN_TRAINING,
-EXPLAIN_LAB, IDLE, STOP
-```
+## 3. Existing Robot contracts discovered
 
-Notably, `WAVE` and `IDLE` already exist in this vocabulary — both
-gesture-relevant. Pinned by `tests/test_robot.py::TestExistingRobotCommandsPreserved`
-and re-verified (without modification) by this phase's own
-`tests/test_robot_gestures.py::TestCompatibilityWithExistingRobotController::test_existing_robot_command_type_values_unchanged`.
+- `RobotCommandType` (Enum): `GREET, WAVE, SPEAK, EXPLAIN_AI,
+  EXPLAIN_ROBOTICS, EXPLAIN_TRAINING, EXPLAIN_LAB, IDLE, STOP` (9
+  members, unchanged from the prior phase).
+- `RobotCommand` (frozen dataclass): `command_type: RobotCommandType`,
+  `text: Optional[str] = None`, `metadata: Dict[str, Any] = {}`.
+- `RobotExecutionResult` (frozen dataclass, in
+  `app/robot/robot_controller.py`): `command_type`, `success: bool`,
+  `message: str`.
+- `RobotError` (exception): raised by `RobotController.execute()` only
+  for a non-`RobotCommand` argument — a programmer error.
 
-## 4. Existing `RobotController` and backend abstraction discovered
+## 4. Existing `RobotController` architecture discovered
 
 `RobotController(backend: Optional[RobotBackend] = None)` — defaults
-to `SimulatedRobotBackend()`. Public API: `execute(command)`,
-`greet()`, `wave()`, `speak(text)`, `idle()`, `stop()`. `execute()`
-validates the command is a `RobotCommand` (raises `RobotError`
-otherwise), rejects empty/whitespace-only text for speech-bearing
-command types (returns `success=False`, does not raise), and reports
-backend exceptions as `success=False` rather than propagating them.
-`RobotBackend` is an ABC with a single abstract `execute(command)`
-method; `SimulatedRobotBackend` is the only concrete implementation
-present, recording an in-memory `history` of executed commands.
+to `SimulatedRobotBackend()`. `execute()` validates the argument is a
+`RobotCommand` (raises `RobotError` otherwise), rejects empty/
+whitespace-only text for speech-bearing command types (returns
+`success=False`, does not raise), and catches backend exceptions,
+reporting them as `success=False` rather than propagating them. This
+architecture is identical to what was discovered and documented in the
+prior Robot Gestures phase — reconfirmed, not re-derived from scratch,
+since `app/robot/` was not touched by that phase either.
 
-## 5. Existing gesture capabilities discovered
+## 5. Existing backend abstraction discovered
 
-None. No `app/robot/gesture_*` files, no gesture-specific tests, and no
-gesture-level abstraction existed anywhere in the repository prior to
-this phase. `RobotCommandType.WAVE` is the only existing command that
-is gesture-like in nature; `GREET` also has a gestural component in
-practice but is documented and tested as a distinct, specific action
-(visitor greeting), not a generic gesture primitive.
+`RobotBackend` (ABC, single abstract `execute(command)` method).
+`SimulatedRobotBackend` (the only concrete implementation present) —
+hardware-free, records an in-memory `history` of executed commands.
+Unchanged since the prior phase.
 
-## 6. Gesture architecture implemented
+## 6. Existing result/error contract discovered
+
+`RobotExecutionResult` (see section 3) is already exactly the shape an
+adapter needs: which command ran, whether it succeeded, and a
+human-readable message. It required no adaptation, wrapping, or
+extension to be returned directly from the adapter's methods.
+
+## 7. Existing integration boundaries discovered
+
+No `app/integration/` directory existed prior to this phase. A
+repository-wide search for `*integration*` found only
+`tests/test_integration.py` and `docs/integration_contract.md`.
+`tests/test_integration.py` was inspected and found to be an existing,
+unrelated cross-module integration/smoke test file (import-graph and
+dependency-direction checks across Vision/Decision/Guide/Robot/Navigation),
+not an integration *adapter* — it does not translate application
+actions into Robot calls and does not overlap with this phase's
+objective. `docs/integration_contract.md` documents the project's
+overall module boundaries (used throughout the audit above) but
+likewise defines no existing adapter. Conclusion: **no existing
+compatible integration adapter or equivalent boundary already
+exists**, so `app/integration/` (the preferred structure from the
+phase brief) was created fresh.
+
+## 8. Adapter architecture implemented
 
 ```
-app/robot/
-    gesture_definitions.py   # GestureIntent, GestureRequest, GestureError, validate_gesture_request()
-    gesture_mapper.py        # GESTURE_TO_ROBOT_COMMAND, map_gesture_to_command(), is_gesture_supported()
-    gesture_controller.py    # GestureExecutionResult, GestureController
+app/integration/
+    __init__.py        # re-exports RobotIntegrationAdapter, AdapterError
+    robot_adapter.py    # RobotIntegrationAdapter, AdapterError, _validate_optional_text()
 ```
 
-This matches the structure suggested in the phase brief and was
-compatible with the existing Robot architecture as discovered, so no
-alternative structure was needed.
-
-Flow for a supported gesture:
+Flow for every supported action:
 
 ```
-GestureRequest
+Application-level Robot-facing action (method call, method args only)
       ↓
-GestureController.execute_gesture()      (this phase)
-      ↓  validate_gesture_request()      (this phase)
-      ↓  map_gesture_to_command()        (this phase)
-      ↓  build existing RobotCommand     (this phase, using existing RobotCommand)
+RobotIntegrationAdapter.<method>()          (this phase)
+      ↓  _validate_optional_text()          (this phase, type-only)
+      ↓  build existing RobotCommand where needed  (this phase, using existing RobotCommand)
       ↓
-existing RobotController.execute()       (existing, unmodified)
+existing RobotController.<wrapper>() / .execute()   (existing, unmodified)
       ↓
 existing RobotBackend (SimulatedRobotBackend by default)  (existing, unmodified)
 ```
 
-`GestureController` holds a `RobotController` instance by composition
-(constructor parameter, defaulting to `RobotController()`) and never
-constructs or talks to a `RobotBackend` directly — it always dispatches
-through the existing `RobotController.execute()`, exactly matching the
-"must not bypass `RobotController`" / "must not create a second
-independent Robot controller" constraints.
+`RobotIntegrationAdapter` holds a `RobotController` instance by
+composition (constructor parameter, defaulting to `RobotController()`)
+and never constructs or talks to a `RobotBackend` directly — every
+method ultimately calls an existing `RobotController` public method,
+exactly matching "must not bypass `RobotController`" / "must not
+create a second Robot command system."
 
-## 7. Supported gestures
+## 9. Supported adapter methods
 
-`GestureIntent`: `WAVE`, `POINT`, `ACKNOWLEDGE`, `THINKING`, `ARRIVED`,
-`IDLE` (all six requested intents are defined).
+One method per existing `RobotCommandType` member (9 total, no gaps,
+no extras):
 
-Executable today (mapped to an existing `RobotCommandType`):
+| Adapter method | Existing Robot API used |
+|---|---|
+| `execute_greeting()` | `RobotController.greet()` |
+| `wave()` | `RobotController.wave()` |
+| `speak(text)` | `RobotController.speak(text)` |
+| `idle()` | `RobotController.idle()` |
+| `stop()` | `RobotController.stop()` |
+| `explain_ai(text)` | `RobotController.execute(RobotCommand(EXPLAIN_AI, text=text))` |
+| `explain_robotics(text)` | `RobotController.execute(RobotCommand(EXPLAIN_ROBOTICS, text=text))` |
+| `explain_training(text)` | `RobotController.execute(RobotCommand(EXPLAIN_TRAINING, text=text))` |
+| `explain_lab(text)` | `RobotController.execute(RobotCommand(EXPLAIN_LAB, text=text))` |
 
-- `WAVE` → `RobotCommandType.WAVE`
-- `IDLE` → `RobotCommandType.IDLE`
+## 10. Unsupported actions and why
 
-Not currently executable (no existing `RobotCommandType` safely
-corresponds — see "Integration gaps" below): `POINT`, `ACKNOWLEDGE`,
-`THINKING`, `ARRIVED`. Requesting one of these returns
-`GestureExecutionResult(success=False, ...)` without ever reaching
-`RobotController` or a backend — it fails safely rather than raising
-or guessing at a mapping.
+The phase brief's conceptual examples included `show_navigation_step(...)`
+and `show_arrival()`. Neither was implemented:
 
-## 8. Files added
+- **`show_navigation_step(...)`** — `app.navigation.service` is an
+  explicit, documented placeholder ("PLACEHOLDER — not implemented in
+  this phase") with no executable logic, and no existing
+  `RobotCommandType` corresponds to a navigation step. There is
+  nothing existing to translate this action into.
+- **`show_arrival()`** — no existing `RobotCommandType` unambiguously
+  represents "arrival." `STOP` and `IDLE` are both plausible but
+  semantically different guesses (this is the same ambiguity already
+  identified and documented for the `ARRIVED` gesture in the prior
+  Robot Gestures phase's `PHASE_REPORT.md`/`docs/robot_gestures.md`);
+  picking either here would repeat that same unjustified guess at the
+  adapter layer.
 
-- `app/robot/gesture_definitions.py`
-- `app/robot/gesture_mapper.py`
-- `app/robot/gesture_controller.py`
-- `tests/test_robot_gestures.py`
-- `docs/robot_gestures.md`
-- `PHASE_REPORT.md`
-- `robot-gestures-phase.tar.gz`
+Per the strict change rules, no new `RobotCommandType` was added and
+neither method was implemented with a best-guess mapping. Verified by
+`tests/test_robot_integration_adapter.py::TestUnsupportedActionsAreNotExposed`
+(`hasattr(adapter, "show_navigation_step")` and
+`hasattr(adapter, "show_arrival")` are both `False`).
 
-## 9. Exact list of existing files modified
+## 11. Files added
+
+- `app/integration/__init__.py`
+- `app/integration/robot_adapter.py`
+- `tests/test_robot_integration_adapter.py`
+- `docs/robot_integration_adapter.md`
+- `PHASE_REPORT.md` (this file — supersedes the prior phase's
+  `PHASE_REPORT.md`, which remains available inside
+  `robot-gestures-phase.tar.gz` from that phase)
+- `robot-integration-adapter-phase.tar.gz`
+
+## 12. Exact list of existing files modified
 
 **None.**
 
-## 10. Explicit confirmation of whether any existing Robot file was modified
-
-**Confirmed: no existing Robot file was modified.**
-`app/robot/robot_commands.py`, `app/robot/robot_controller.py`, and
-`app/robot/__init__.py` are byte-for-byte unchanged from the uploaded
-ZIP (verified with a recursive diff against a fresh extraction of the
-uploaded archive — the only differences found anywhere in the
-top-level repository tree were `__pycache__`/`.pytest_cache` artifacts
-and the new files listed in section 8).
-
-## 11. Explicit confirmation that no protected module was modified
+## 13. Explicit confirmation that protected modules were not modified
 
 **Confirmed.** `app/vision/`, `app/ml/`, `app/dl/`, `app/navigation/`,
-`app/decision/`, `app/main.py`, and `app/config.py` were not modified
-(verified by the same recursive diff referenced above). No file under
-`app/models/` was modified either.
+`app/decision/`, `app/guide/`, `app/main.py`, and `app/config.py` were
+not modified (verified with a recursive diff against a fresh
+extraction of the uploaded ZIP — see section 18). This also confirms
+the Robot Gestures phase's own deliverables
+(`app/robot/gesture_*.py`, `tests/test_robot_gestures.py`,
+`docs/robot_gestures.md`) from the prior phase were left untouched by
+this phase.
 
-## 12. Confirmation that no `RobotCommandType` values were changed
+## 14. Explicit confirmation that `app/main.py` was not modified
 
-**Confirmed.** `RobotCommandType` still has exactly the same nine
-members with the same values as before this phase:
-`GREET, WAVE, SPEAK, EXPLAIN_AI, EXPLAIN_ROBOTICS, EXPLAIN_TRAINING,
-EXPLAIN_LAB, IDLE, STOP`. No new `RobotCommandType` member was added.
-This is verified both by the pre-existing
-`tests/test_robot.py::TestExistingRobotCommandsPreserved` (unchanged,
-still passing) and by this phase's own
-`tests/test_robot_gestures.py::TestCompatibilityWithExistingRobotController::test_existing_robot_command_type_values_unchanged`.
+**Confirmed.** `app/main.py` is byte-for-byte unchanged and remains
+the project's only orchestration layer. The adapter is not called from
+`app.main` in this phase.
 
-## 13. Tests added
+## 15. Explicit confirmation that `app/robot/` was or was not modified
 
-`tests/test_robot_gestures.py` — 46 tests, covering:
+**Confirmed: `app/robot/` was not modified by this phase.**
+`app/robot/robot_commands.py`, `app/robot/robot_controller.py`, and
+`app/robot/__init__.py` are byte-for-byte unchanged from the uploaded
+ZIP. (The three gesture files added under `app/robot/` in the prior
+Robot Gestures phase — `gesture_definitions.py`, `gesture_mapper.py`,
+`gesture_controller.py` — are also unchanged; they were not touched by
+this phase and are not part of this phase's deliverables.)
 
-- Gesture vocabulary (all six requested intents present, values match
-  names, every intent has a mapping-table entry).
-- Gesture mapping (`WAVE`/`IDLE` map correctly; `POINT`/`ACKNOWLEDGE`/
-  `THINKING`/`ARRIVED` are unsupported; supported/unsupported sets
-  partition all gestures; the mapping never invents a new
-  `RobotCommandType`; invalid input raises `GestureError`).
-- Gesture request validation (valid/invalid/`None` input).
-- `GestureController` initialization (default and injected
-  `RobotController`).
-- Supported-gesture execution (success, correct `RobotCommandType`
-  reaches the backend, backend history is recorded).
-- Unsupported-gesture handling (fails safely, never reaches the
-  backend, no exception raised).
-- Gesture-layer error handling (`GestureError` for malformed input).
-- Gesture sequencing (in-order execution, continues past unsupported
-  gestures, empty sequence).
-- Backend isolation and determinism (no own backend created, works
-  with zero hardware, deterministic repeat execution).
-- Forbidden-import checks (no `app.vision`/`app.ml`/`app.dl`/
-  `app.navigation`/`app.decision`/`app.main`, no `socket`/`serial`/
-  `requests`/`urllib`) via AST inspection of the three gesture files.
+## 16. Tests added
+
+`tests/test_robot_integration_adapter.py` — 41 tests, covering:
+
+- Module imports.
+- Adapter initialization (default and injected `RobotController`).
+- All nine supported actions (correct `RobotCommandType`, `success=True`
+  against the default simulated backend), plus a check that exactly
+  one adapter method exists per existing `RobotCommandType` member.
+- Unsupported conceptual actions (`show_navigation_step`,
+  `show_arrival`) confirmed absent via `hasattr`.
+- Input validation (`AdapterError` for non-`str`/non-`None` text on
+  `speak()` and `explain_ai()`; `None` and empty/whitespace text are
+  *not* rejected by the adapter and are forwarded to the existing
+  controller, which reports them as a safe `success=False`).
+- Backend failure handling (a raising `RobotBackend` is reported as
+  `success=False`, never propagated, for both a direct wrapper call
+  and an `explain_*` call).
+- `RobotController` compatibility (existing `RobotCommandType` values
+  unchanged; an adapter-issued greeting matches a direct
+  `RobotController.greet()` call in shape; the adapter returns the
+  existing `RobotExecutionResult` type directly rather than a new
+  wrapper type; actions reach the shared backend's `history`).
+- Adapter does not bypass `RobotController` (no `RobotBackend(` /
+  `SimulatedRobotBackend(` construction in the adapter's own source;
+  all `_EXPLAIN_COMMAND_TYPES` are members of the existing
+  `RobotCommandType`; `_explain()` rejects a non-`EXPLAIN_*` command
+  type).
+- Hardware/network independence (adapter works with zero hardware; AST
+  check confirms no `socket`/`serial`/`requests`/`urllib` imports).
+- Dependency isolation (AST-verified: no `app.vision`/`app.ml`/`app.dl`
+  imports at all; no `app.decision`/`app.guide`/`app.navigation`/
+  `app.main` imports either).
 - No-circular-imports check (full project import graph, including this
-  phase's new modules alongside every existing module).
-- Compatibility with the existing `RobotController` (existing
-  `RobotCommandType` values unchanged; a gesture-driven `WAVE`
-  produces a result equivalent in shape to calling
-  `RobotController.wave()` directly).
+  phase's new modules alongside every existing module, including the
+  prior phase's gesture modules).
+- Deterministic repeat execution.
 
-## 14. Existing tests left unchanged
+## 17. Existing Robot tests left unchanged
 
-All pre-existing test files (`tests/test_robot.py` and every other file
-under `tests/`) are byte-for-byte unchanged — confirmed by the same
-recursive diff referenced in section 10.
+All pre-existing test files, including `tests/test_robot.py` and the
+prior phase's `tests/test_robot_gestures.py`, are byte-for-byte
+unchanged — confirmed by the same recursive diff referenced in
+section 18.
 
-## 15. Final full pytest result
+## 18. Dependency isolation verification
 
-```
-$ python -m pytest -q --ignore=ai-university-lab-guide
-265 passed, 2 skipped, 16 warnings in 1.24s
-```
+`app/integration/__init__.py` and `app/integration/robot_adapter.py`
+import only: the Python standard library, the existing `app.robot`
+public API (`RobotCommand`, `RobotCommandType`, `RobotController`,
+`RobotExecutionResult`), and `app.utils.logger`. AST inspection
+(`tests/test_robot_integration_adapter.py::TestDependencyIsolation`)
+confirms zero imports of `app.vision`, `app.ml`, `app.dl` (strictly
+forbidden — none found) and zero imports of `app.decision`,
+`app.guide`, `app.navigation`, `app.main` (discouraged — none found;
+not needed since every adapter method receives its data, e.g. `text`,
+as a plain argument rather than fetching it from another workstream).
 
-(`--ignore=ai-university-lab-guide` excludes only the pre-existing
-duplicate nested copy described in section 1's "Repository layout
-note" — it is not part of this phase's scope and was not modified.
-The 2 skips are pre-existing and unrelated to this phase; the full
-suite, including all 46 newly added gesture tests, passes cleanly.)
+## 19. Circular import verification
 
-## 16. Final test count
-
-- Before this phase: 219 passed, 2 skipped (221 collected).
-- After this phase: 265 passed, 2 skipped (267 collected).
-- Added by this phase: 46 tests, all passing.
-
-## 17. Circular import verification
-
-Verified by direct import of every module (existing and new) in one
-process, and independently by
-`tests/test_robot_gestures.py::TestNoCircularImports`:
+Verified by direct import of every module (existing and new,
+including both phases' additions) in one process, and independently by
+`tests/test_robot_integration_adapter.py::TestNoCircularImports`:
 
 ```
 app.robot, app.robot.robot_commands, app.robot.robot_controller,
-app.robot.gesture_definitions, app.robot.gesture_mapper,
-app.robot.gesture_controller, app.vision, app.decision, app.guide,
-app.models, app.config, app.utils.logger, app.main
+app.integration, app.integration.robot_adapter, app.vision,
+app.decision, app.guide, app.navigation, app.models, app.config,
+app.utils.logger, app.main
 ```
 
 All import cleanly together — no circular import errors.
 
-## 18. Hardware isolation verification
+## 20. Hardware isolation verification
 
-`GestureController()` with no arguments requires no physical robot, no
-Robot SDK, no network, and no external API — it defaults to wrapping
-`RobotController()`, which itself defaults to the existing
+`RobotIntegrationAdapter()` with no arguments requires no physical
+robot, no Robot SDK, no network, and no external API — it defaults to
+wrapping `RobotController()`, which itself defaults to the existing
 hardware-free `SimulatedRobotBackend`. Verified by
-`TestBackendIsolationAndDeterminism` and `TestUnsupportedGestureHandling::
-test_unsupported_gesture_never_reaches_the_backend` (unsupported
-gestures never even reach the backend). Also verified by AST
-inspection (`TestNoForbiddenImports::
-test_gesture_files_do_not_import_socket_or_network_modules`) that none
-of the three new gesture files import `socket`, `serial`, `requests`,
-or `urllib`.
+`TestHardwareAndNetworkIndependence` (adapter operates end-to-end with
+zero hardware) and by AST inspection confirming neither adapter file
+imports `socket`, `serial`, `requests`, or `urllib`.
 
-## 19. Integration gaps
-
-Four of the six requested gesture intents have no existing
-`RobotCommandType` that safely and unambiguously implements them:
-
-- **`POINT`** — implies directional/spatial motion or a target
-  reference. No existing `RobotCommandType` carries direction or a
-  target; there is nothing in the existing vocabulary to map onto
-  without inventing new semantics.
-- **`ACKNOWLEDGE`** — the nearest existing command is `GREET`, but
-  `GREET` is documented and tested (`docs/integration_contract.md`,
-  `tests/test_robot.py`) as a specific visitor-greeting action, not a
-  generic short acknowledgment. Mapping `ACKNOWLEDGE` onto `GREET`
-  would make every acknowledgment look identical to a greeting
-  elsewhere in the system (e.g. to `app.main.ApplicationIntegration`,
-  which already maps `DecisionEventType.GREETING_REQUIRED` →
-  `RobotCommandType.GREET`), which would blur a distinction the
-  existing architecture already relies on.
-- **`THINKING`** — no existing command expresses a "processing/
-  thinking" state; `IDLE` means "at rest," which is a different signal
-  than "actively processing."
-- **`ARRIVED`** — ambiguous between `STOP` (halt motion) and `IDLE`
-  (idle state); the existing vocabulary was not designed to distinguish
-  "just arrived and now stopped" from "at rest," so picking either
-  would be guessing at a semantic the existing contract doesn't define.
-
-Per the strict change rules for this phase, no new `RobotCommandType`
-value was added to close these gaps, and no existing command was
-force-mapped to a semantically mismatched gesture. Instead:
-
-- The gap is documented here and in `docs/robot_gestures.md`.
-- `GESTURE_TO_ROBOT_COMMAND` explicitly maps these four gestures to
-  `None`.
-- `GestureController.execute_gesture()` returns
-  `GestureExecutionResult(success=False, message="Gesture <X> has no
-  corresponding existing RobotCommandType and is not currently
-  supported.")` for each of them, rather than raising or silently
-  no-op-ing.
-- Resolving this gap would require adding new `RobotCommandType`
-  member(s) (e.g. `POINT`, `ACKNOWLEDGE`, `THINKING`, `ARRIVED`) to
-  `app/robot/robot_commands.py` — an explicit, separately-approved
-  change to a protected/shared contract, which is out of scope for
-  this phase per the strict change rules ("STOP. Do not make the
-  change. Document the integration gap...").
-
-No change to `Decision`, `app.main`, or any other protected module was
-required or made to implement this phase — the gesture layer is
-usable standalone (`GestureController()`), and any future wiring from
-`Decision`/`app.main` into the gesture layer is left for a future,
-separately-scoped integration phase, consistent with "Do not modify
-orchestration to connect the new feature."
-
-## 20. Limitations
-
-- Only `WAVE` and `IDLE` gestures are currently executable end-to-end;
-  the other four defined gesture intents are validated and routed
-  correctly but report `success=False` until a corresponding
-  `RobotCommandType` is added (see section 19).
-- The gesture layer is not wired into `app.main.ApplicationIntegration`
-  or `Decision` — per the strict change rules, this phase does not
-  modify orchestration. `GestureController` is available for a future
-  phase to wire in, using the same pattern `app.main` already uses for
-  `RobotController`.
-- Gesture sequencing (`execute_sequence`) always runs every request in
-  the sequence to completion (mirroring `RobotController`'s
-  per-command fail-safe behavior) rather than supporting a
-  stop-on-first-failure mode; callers needing that can inspect each
-  result themselves.
-
-## 21. Archive validation result
-
-`robot-gestures-phase.tar.gz` was created containing only this phase's
-deliverables and validated by listing its contents (see command output
-below, captured at archive-creation time):
+## 21. Final full pytest result
 
 ```
-gesture_definitions.py
-gesture_controller.py
-gesture_mapper.py
-test_robot_gestures.py
-robot_gestures.md
+$ python -m pytest -q --ignore=ai-university-lab-guide
+306 passed, 2 skipped, 16 warnings in 2.87s
+```
+
+(`--ignore=ai-university-lab-guide` excludes only the pre-existing
+duplicate nested copy described in section 1 — unrelated to this
+phase and not modified. The 2 skips are pre-existing and unrelated.
+The full suite — including the prior phase's 46 gesture tests and this
+phase's 41 new adapter tests — passes cleanly.)
+
+## 22. Final test count
+
+- Before this phase (i.e. after the Robot Gestures phase): 265 passed,
+  2 skipped (267 collected).
+- After this phase: 306 passed, 2 skipped (308 collected).
+- Added by this phase: 41 tests, all passing.
+
+## 23. Integration gaps
+
+- **`show_navigation_step(...)`** — blocked on `app.navigation` being
+  an unimplemented placeholder with no public contract to translate
+  against, and on no existing `RobotCommandType` representing a
+  navigation step. Resolving this would require both a
+  `NavigationService` implementation (out of scope: `app.navigation`
+  is protected) and a new `RobotCommandType` member (out of scope:
+  requires separate approval per the strict change rules).
+- **`show_arrival()`** — blocked on ambiguity between `STOP` and
+  `IDLE` as the closest existing command types, neither of which the
+  existing Robot contract documents as meaning "arrived." Resolving
+  this would require either an explicit, separately-approved decision
+  about which existing command type "arrival" should map to, or a new
+  `RobotCommandType` member added to `app/robot/robot_commands.py`
+  with explicit approval — neither of which this phase is authorized
+  to do unilaterally.
+
+No change to `app/robot/`, `Decision`, `Guide`, `Navigation`, or
+`app.main` was required or made to implement this phase — the adapter
+is usable standalone (`RobotIntegrationAdapter()`), and wiring it into
+`app.main`'s orchestration is left for a future, separately-scoped
+integration phase, consistent with "Future integration into `main.py`
+is outside this phase."
+
+## 24. Limitations
+
+- Only the nine existing `RobotCommandType`-backed actions are
+  exposed; navigation-step and arrival announcements are not currently
+  translatable (see section 23).
+- The adapter is not wired into `app.main.ApplicationIntegration` — it
+  is available for a future phase to adopt, following the same
+  construction pattern `app.main` already uses for `RobotController`
+  today (see `docs/robot_integration_adapter.md`, "Future integration
+  expectations").
+- The adapter's own input validation is limited to type-checking `text`
+  arguments; it deliberately does not re-implement the existing
+  content-level validation (empty/whitespace text) already performed
+  by `RobotController.execute()`, to avoid two possibly-divergent
+  copies of that logic.
+- This phase does not interact with, extend, or depend on the prior
+  Robot Gestures phase's `app/robot/gesture_*` modules — the two
+  phases are independent and additive; nothing here requires them to
+  be present.
+
+## 25. Archive validation result
+
+`robot-integration-adapter-phase.tar.gz` was created containing only
+this phase's deliverables and validated by listing its contents (see
+command output captured at archive-creation time):
+
+```
+__init__.py
+robot_adapter.py
+test_robot_integration_adapter.py
+robot_integration_adapter.md
 PHASE_REPORT.md
 ```
 
-No full repository, `.git/`, virtual environment, cache, `__pycache__/`,
-unrelated application module, unrelated test, or unrelated
-documentation is included.
+No full repository, `.git/`, virtual environment, cache,
+`__pycache__/`, unrelated application module, unrelated test,
+unrelated documentation, protected module, or copy of the existing
+Robot implementation is included. The prior phase's gesture files
+(`app/robot/gesture_*.py`) are also correctly excluded, since they are
+not part of this phase's deliverables.
