@@ -518,27 +518,6 @@ No web framework, database, or cloud service is used in this phase.
 - **Phase 3:** Visit/session logging, topic analytics, database, visitor statistics.
 - **Phase 4:** Advanced perception, object detection, visitor tracking, smart recommendations.
 
-## Future Architecture
-
-**Planned / Scaffolded — not yet implemented.** Phase 8 prepared the
-repository for a larger, more scalable architecture by adding empty
-module scaffolding and documentation only. No new feature logic exists
-yet — see [`docs/architecture.md`](docs/architecture.md) and
-[`docs/contracts.md`](docs/contracts.md) for the full plan.
-
-| New module | Responsibility (future) | Status |
-|---|---|---|
-| `app/ml` | Classify a student question into an intent (`INFORMATION`/`NAVIGATION`/`COMBINED`/`HELP`/`UNKNOWN`) via TF-IDF + Logistic Regression | **Scaffolded** — directory structure + docstrings only |
-| `app/dl` | Recognize physical gestures (`WAVE`/`STOP`/`POINT`/`UNKNOWN`) from camera frames | **Scaffolded** — directory structure + docstrings only |
-| `app/navigation` | University map representation + pathfinding (`RouteRequest` → `RouteResult`) | **Scaffolded** — file placeholders + docstrings only |
-| `app/ui` | Display route, intent, destination, robot status, and guide information | Placeholder since Phase 1; scope clarified in Phase 8 |
-
-None of these are wired into `app/main.py`, `app/decision`, or
-`app/robot` yet, and `app/vision`/`app/robot`/`app/models`/`app/config`
-were **not modified** to make room for them. Each will get its own
-dedicated implementation phase, the same way Vision, Decision, Guide,
-Robot, and Integration each did.
-
 ## Integration notes for Person 2
 
 - `app/robot` is implemented (Phase 6) and now genuinely wired into the

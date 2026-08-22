@@ -75,14 +75,6 @@ class RobotBackend(ABC):
     Exists so RobotController never talks to hardware/SDK details
     directly, and so a real hardware backend can be swapped in later
     without changing RobotController's public API.
-
-    To add a future hardware backend: subclass RobotBackend, implement
-    execute(), and pass an instance to RobotController(backend=...).
-    No change to RobotController, RobotCommand, RobotCommandType, or
-    RobotExecutionResult is required to do this — those contracts are
-    intentionally backend-independent. This class cannot be
-    instantiated directly (it is an ABC); only concrete subclasses like
-    SimulatedRobotBackend can be.
     """
 
     @abstractmethod
