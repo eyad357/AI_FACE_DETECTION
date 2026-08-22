@@ -10,13 +10,13 @@ services, fully deterministic.
 
 import pytest
 
-from app.models.schemas import IntentType
 from app.speech import (
     ConversationContext,
     ConversationInput,
     ConversationResponse,
     ConversationResponseType,
     ConversationService,
+    IntentType,
     Language,
 )
 

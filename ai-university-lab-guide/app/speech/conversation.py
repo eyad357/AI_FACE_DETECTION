@@ -25,10 +25,13 @@ Usage:
 Dependency rules (enforced — see tests/speech/test_isolation.py and
 app/speech/__init__.py):
     This module MUST NOT import app.robot, app.ml, app.vision, app.dl,
-    or app.main. It MAY use shared contracts from app.models
-    (IntentType), the same way app.ml.service does, so that a caller
-    who already ran ML intent classification can hand the result in
-    without this module ever importing app.ml itself.
+    or app.main. IntentType is a Speech-owned contract
+    (app.speech.intent) rather than a shared app.models contract —
+    see app/speech/intent.py for why, and for the compatible path to a
+    genuinely shared IntentType once app.ml exists. A caller who
+    already ran some other intent classification can still hand an
+    IntentType straight into ConversationInput without this module
+    ever importing app.ml itself.
 """
 
 from __future__ import annotations
@@ -37,8 +40,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from app.models.schemas import IntentType
 from app.speech.context import ConversationContext
+from app.speech.intent import IntentType
 from app.speech.knowledge import lookup_placeholder_information
 from app.speech.language import Language, PhraseKey, detect_language, phrase
 from app.speech.response import ConversationResponse, ConversationResponseType

@@ -43,7 +43,7 @@ class ConversationContext:
             confirmed it would guide the student to.
         last_intent: A short string label for the most recently
             handled intent (e.g. "NAVIGATION", "INFORMATION"). Kept as
-            a plain string (not app.models.schemas.IntentType) so this
+            a plain string (not app.speech.intent.IntentType) so this
             context can also represent intents produced by this
             module's own local, non-ML heuristic, which are not
             necessarily IntentType members.

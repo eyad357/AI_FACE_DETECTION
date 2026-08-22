@@ -1,390 +1,474 @@
-# PHASE_REPORT — Robot Integration Adapter
+# PERSON 2 — BLOCKER FIX, FULL VALIDATION & INTEGRATION-READY HARDENING
 
-## 1. Files inspected during the repository audit
+**Repository:** https://github.com/eyad357/AI_FACE_DETECTION.git
+**Project root inside repo:** `ai-university-lab-guide/`
+**Base commit (before this phase's fixes):** `5143f5c1ab189ae7dc5f872558e7c9af1373d958`
+("Add robot integration adapter phase P2")
+**This phase's scope:** Person 2 packaging/placement repair and
+integration-ready hardening only. No cross-person integration was
+performed. No Person 1 code was touched.
 
-- Full repository tree (`find`), reconfirming the layout note below.
-- `app/robot/__init__.py`
-- `app/robot/robot_commands.py`
-- `app/robot/robot_controller.py`
-- `app/decision/event_manager.py` (skimmed — confirmed `ApplicationState`
-  / `DecisionEventType` / `GuideTopic` are application-level intents,
-  not Robot commands, and are not needed by this adapter)
-- `app/guide/guide_service.py` (skimmed — confirmed Guide produces
-  `GuideResponse` content and does not touch Robot at all)
-- `app/navigation/service.py` (read in full — confirmed it is an
-  explicit, documented placeholder with no executable logic)
-- `app/ml/`, `app/dl/` (skimmed at directory level — confirmed no
-  Robot-relevant public contract lives there)
-- `app/main.py` (skimmed via `docs/integration_contract.md`'s
-  description plus import-graph checks — not modified)
-- `app/config.py` (skimmed — confirmed Robot/adapter reads no
-  `CONFIG` value)
-- `docs/integration_contract.md`
-- `tests/test_robot.py` (full read, from the prior Robot Gestures
-  phase audit, re-confirmed unchanged)
-- `tests/test_integration.py` (read — confirmed this is an existing,
-  unrelated test file for a different "integration" concept already
-  present in the repo, not an existing Robot integration adapter; see
-  section 7)
-- `app/utils/logger.py`
-- Full repo search for any existing `*integration*` files/dirs
+---
 
-### Repository layout note (carried over, unchanged)
+## Executive Status
 
-The uploaded ZIP still contains two copies of the project: the real
-top-level repository (`AI_FACE_DETECTION-main/app/...`) and a nested,
-older duplicate at `AI_FACE_DETECTION-main/ai-university-lab-guide/`.
-This is a pre-existing condition of the archive, not introduced or
-fixed by this phase — it was left untouched, exactly as in the prior
-Robot Gestures phase. All `pytest` runs below use
-`--ignore=ai-university-lab-guide` purely to avoid the resulting
-module-name collision; nothing inside `ai-university-lab-guide/` was
-modified.
+# READY
 
-## 2. Existing Robot public APIs discovered
+All previously identified blockers are resolved. The repository now
+collects and runs its full test suite from a clean checkout with zero
+collection errors, zero forbidden imports, and zero known order
+dependencies. Person 2's public contracts are unchanged; only file
+placement, one missing package `__init__.py`, and one missing type
+definition were corrected, plus one test-isolation bug found during
+this phase's own regression testing was fixed.
 
-`app.robot` (`app/robot/__init__.py`) re-exports: `RobotCommand`,
-`RobotCommandType`, `RobotController`, `RobotBackend`,
-`SimulatedRobotBackend`, `RobotExecutionResult`, `RobotError`.
+---
 
-`RobotController` exposes: `execute(command: RobotCommand) ->
-RobotExecutionResult`, plus five convenience wrappers with no existing
-wrapper for the four `EXPLAIN_*` topics:
-`greet()`, `wave()`, `speak(text: str)`, `idle()`, `stop()`.
+## Changes Made
 
-## 3. Existing Robot contracts discovered
+### 1. Removed the suite-wide blocker
+- Deleted the stray repository-root `ai-university-lab-guide/__init__.py`
+  that imported a nonexistent `app.integration.robot_adapter` and broke
+  pytest collection for the entire repository (Person 1 and Person 2
+  alike). The repository root is a normal project root again, not an
+  artificial Python package.
 
-- `RobotCommandType` (Enum): `GREET, WAVE, SPEAK, EXPLAIN_AI,
-  EXPLAIN_ROBOTICS, EXPLAIN_TRAINING, EXPLAIN_LAB, IDLE, STOP` (9
-  members, unchanged from the prior phase).
-- `RobotCommand` (frozen dataclass): `command_type: RobotCommandType`,
-  `text: Optional[str] = None`, `metadata: Dict[str, Any] = {}`.
-- `RobotExecutionResult` (frozen dataclass, in
-  `app/robot/robot_controller.py`): `command_type`, `success: bool`,
-  `message: str`.
-- `RobotError` (exception): raised by `RobotController.execute()` only
-  for a non-`RobotCommand` argument — a programmer error.
+### 2. Robot Integration Adapter → canonical location
+- `robot_adapter.py` → `app/integration/robot_adapter.py`
+- Created `app/integration/__init__.py`, re-exporting `RobotIntegrationAdapter`
+  and `AdapterError` (this file's content is what the old, misplaced
+  root `__init__.py` was actually trying to provide — it now lives where
+  it belongs).
+- `test_robot_integration_adapter.py` → `tests/test_robot_integration_adapter.py`
+- `robot_integration_adapter.md` → `docs/robot_integration_adapter.md`
+- No changes to `RobotIntegrationAdapter`'s or `AdapterError`'s public
+  API. `robot_adapter.py`'s own internal imports (`from app.robot import
+  ...`) were already correct and needed no edits — only its location
+  was wrong.
 
-## 4. Existing `RobotController` architecture discovered
+### 3. Robot Gestures → canonical location
+- `gesture_definitions.py`, `gesture_mapper.py`, `gesture_controller.py`
+  → `app/robot/`
+- `test_robot_gestures.py` → `tests/test_robot_gestures.py`
+- `robot_gestures.md` → `docs/robot_gestures.md`
+- No changes to `GestureIntent`, `GestureController`, or the gesture ↔
+  `RobotCommandType` mapping. `RobotCommand`/`RobotCommandType`/
+  `RobotExecutionResult` were not duplicated — gesture files continue to
+  import them from `app.robot.robot_commands` / `app.robot.robot_controller`.
 
-`RobotController(backend: Optional[RobotBackend] = None)` — defaults
-to `SimulatedRobotBackend()`. `execute()` validates the argument is a
-`RobotCommand` (raises `RobotError` otherwise), rejects empty/
-whitespace-only text for speech-bearing command types (returns
-`success=False`, does not raise), and catches backend exceptions,
-reporting them as `success=False` rather than propagating them. This
-architecture is identical to what was discovered and documented in the
-prior Robot Gestures phase — reconfirmed, not re-derived from scratch,
-since `app/robot/` was not touched by that phase either.
+### 4. UI → canonical location, placeholder superseded deliberately
+- `ui/view_models.py`, `route_display.py`, `renderer.py` → `app/ui/`
+- `ui/guide_ui.py` (the real, delivered implementation) now **replaces**
+  the old docstring-only placeholder at `app/ui/guide_ui.py`. There is
+  now exactly one `guide_ui.py`, at `app/ui/guide_ui.py`. No competing
+  second implementation was left behind.
+- Rewrote `app/ui/__init__.py`'s docstring from `"Placeholder package.
+  Not implemented in Phase 1."` to an accurate description of the
+  now-implemented package and its submodules — no API/export change,
+  documentation only.
+- UI tests → `tests/ui/` (`test_isolation.py`, `test_renderer.py`,
+  `test_route_display.py`, `test_view_models.py`).
+- The old top-level `ui/__init__.py`'s content was actually a docstring
+  written for the *test* package ("Test package for app.ui isolation
+  tests"), not the source package — it was misplaced, not lost. It was
+  moved to `tests/ui/__init__.py`, replacing that file's stale
+  placeholder text there.
 
-## 5. Existing backend abstraction discovered
+### 5. Speech & Conversation → canonical location
+- `speech/context.py`, `conversation.py`, `knowledge.py`, `language.py`,
+  `response.py` → `app/speech/`
+- `speech/test_conversation.py`, `test_isolation.py`, `test_language.py`
+  → `tests/speech/`
+- `speech_conversation.md` → `docs/speech_conversation.md`
+- **`app/speech/__init__.py` was found completely empty (0 bytes)** —
+  a second, independent packaging defect not previously flagged, since
+  it never surfaced as an import error while everything was still
+  unreachable at `app.speech`. `tests/speech/test_conversation.py` and
+  `conversation.py`'s own usage docstring both expect
+  `from app.speech import ConversationInput, ConversationService, ...`.
+  Populated it with the re-exports those callers already expected,
+  mirroring the existing style of `app/robot/__init__.py`. No new names
+  were invented — every re-exported symbol already existed in its
+  submodule.
 
-`RobotBackend` (ABC, single abstract `execute(command)` method).
-`SimulatedRobotBackend` (the only concrete implementation present) —
-hardware-free, records an in-memory `history` of executed commands.
-Unchanged since the prior phase.
+### 6. `IntentType` contract issue — resolved as a Speech-owned type
+- Investigated per the task's decision procedure before changing
+  anything: `IntentType` was not defined **anywhere** in the repository
+  — not in `app.models.schemas` (which defines only `BoundingBox`,
+  `FaceDetection`, `DetectionResult`), and not in `app.ml`, which is
+  still an unimplemented Person 1 placeholder (`app/ml/service.py` is a
+  docstring-only stub).
+  `app.models.schemas` is documented as the repo's frozen shared
+  contract layer; the task explicitly warned against editing it "merely
+  to silence the import error."
+- Speech's own code only needs an internal conversational-intent
+  representation to function today, and nothing else in the repository
+  currently produces or consumes an `IntentType` — so, per the task's
+  guidance, it now owns one: **`app/speech/intent.py`**, a small
+  standalone `Enum` with five members. This follows the same
+  "producing module owns its own result type" precedent already used
+  by `DecisionEvent` (`app.decision`), `GuideResponse` (`app.guide`),
+  and `RobotExecutionResult` (`app.robot`).
+- The five members (`INFORMATION`, `NAVIGATION`, `COMBINED`, `HELP`,
+  `UNKNOWN`) intentionally match `app/ml/__init__.py`'s already-documented
+  "Planned intents" list exactly, so that a genuinely shared type later
+  (if/when `app.ml` is implemented) is a values-compatible extension,
+  not a redesign. This is documented in `app/speech/intent.py`'s own
+  module docstring, including which direction of import would be
+  compatible later — that decision is deliberately **not** made in this
+  phase, to avoid inventing a premature cross-module contract.
+- Updated `app/speech/conversation.py`'s import and dependency-rules
+  docstring, `app/speech/context.py`'s stale comment, and
+  `tests/speech/test_conversation.py`'s import accordingly. No test
+  assertions were changed — only the import path.
 
-## 6. Existing result/error contract discovered
+### 7. Repository hygiene
+- Removed `robot-integration-adapter-phase P2.tar.gz` (a committed build
+  artifact) from git tracking via `git rm`.
+- Removed the now-empty leftover top-level `ui/` and `speech/`
+  directories (only stale `__pycache__` remained in them after the
+  moves above).
+- Cleared stale `__pycache__`/`.pyc`/`.pytest_cache` directories from
+  the working tree (already covered by `.gitignore`; none were tracked).
 
-`RobotExecutionResult` (see section 3) is already exactly the shape an
-adapter needs: which command ran, whether it succeeded, and a
-human-readable message. It required no adaptation, wrapping, or
-extension to be returned directly from the adapter's methods.
+### 8. Order-dependency bug found and fixed during this phase's own regression testing
+- Running the full suite immediately after the moves above produced
+  **1 failure**: `tests/test_robot_gestures.py::
+  TestBackendIsolationAndDeterminism::
+  test_gesture_layer_does_not_create_own_backend` failed only when run
+  as part of the full suite, not in isolation — a textbook
+  order-dependency symptom, and exactly the failure mode Section 7/9 of
+  the validation protocol exists to catch.
+- Root cause: `tests/speech/test_isolation.py`'s
+  `TestNoRobotDependencyAtRuntime.test_app_robot_not_imported_as_a_side_effect`
+  (and its `TestNoMLDependencyAtRuntime` counterpart) deleted every
+  `app.robot`/`app.robot.*` (`app.ml`/`app.ml.*`) entry from
+  `sys.modules` to force a fresh import of `app.speech`, but never
+  restored those entries afterward. Any later test holding a reference
+  to an already-imported `app.robot.*` class and calling
+  `inspect.getsource()` on it (as the gesture backend-isolation test
+  does) then failed, because `inspect.getfile()` requires
+  `sys.modules[cls.__module__]` to still be present.
+- **Fix (in `tests/speech/test_isolation.py` only, not application
+  code):** both tests now save the removed `sys.modules` entries before
+  deleting them and restore them in a `finally` block, so the isolation
+  check they perform is unchanged but no longer leaks global
+  interpreter state into later tests. This is a genuine bug fix to a
+  real problem, not a weakened assertion — the tests still verify
+  exactly what they verified before (that `app.speech` does not pull in
+  `app.robot`/`app.ml` as an import side effect), and no test was
+  skipped, deleted, or had its assertions loosened.
+- Verified fixed: full suite passes in both the original file order and
+  a different order (`tests/speech` first), and `tests/test_robot_gestures.py`
+  ↔ `tests/test_robot_integration_adapter.py` pass in both orders
+  against each other.
 
-## 7. Existing integration boundaries discovered
+**Nothing else was changed.** No Person 1 file (`app/vision/`, `app/ml/`,
+`app/dl/`, `app/navigation/`, `app/decision/`) was modified. No public
+class or function was renamed. No test was skipped, deleted, or had an
+assertion weakened. The two pre-existing regressions noted in the prior
+audit (`GuideService.get_location_info()` removal, deleted
+`test_robot.py` extensibility test classes) are **out of scope for this
+phase** (they are not blockers — the suite passes as currently written)
+and are carried forward under Remaining Issues below, unchanged, exactly
+as the task's "do not touch unrelated scope" instruction requires.
 
-No `app/integration/` directory existed prior to this phase. A
-repository-wide search for `*integration*` found only
-`tests/test_integration.py` and `docs/integration_contract.md`.
-`tests/test_integration.py` was inspected and found to be an existing,
-unrelated cross-module integration/smoke test file (import-graph and
-dependency-direction checks across Vision/Decision/Guide/Robot/Navigation),
-not an integration *adapter* — it does not translate application
-actions into Robot calls and does not overlap with this phase's
-objective. `docs/integration_contract.md` documents the project's
-overall module boundaries (used throughout the audit above) but
-likewise defines no existing adapter. Conclusion: **no existing
-compatible integration adapter or equivalent boundary already
-exists**, so `app/integration/` (the preferred structure from the
-phase brief) was created fresh.
+---
 
-## 8. Adapter architecture implemented
+## Package Structure
 
-```
-app/integration/
-    __init__.py        # re-exports RobotIntegrationAdapter, AdapterError
-    robot_adapter.py    # RobotIntegrationAdapter, AdapterError, _validate_optional_text()
-```
+Final, canonical Person 2 tree (all present, all importable):
 
-Flow for every supported action:
+```text
+app/
+├── ui/
+│   ├── __init__.py
+│   ├── guide_ui.py
+│   ├── view_models.py
+│   ├── route_display.py
+│   └── renderer.py
+│
+├── speech/
+│   ├── __init__.py
+│   ├── context.py
+│   ├── conversation.py
+│   ├── intent.py          (new — see "Changes Made" #6)
+│   ├── knowledge.py
+│   ├── language.py
+│   └── response.py
+│
+├── robot/
+│   ├── __init__.py
+│   ├── robot_commands.py
+│   ├── robot_controller.py
+│   ├── gesture_definitions.py
+│   ├── gesture_mapper.py
+│   └── gesture_controller.py
+│
+├── guide/
+│   ├── __init__.py
+│   ├── content.py
+│   ├── guide_service.py
+│   └── locations.py
+│
+└── integration/
+    ├── __init__.py
+    └── robot_adapter.py
 
-```
-Application-level Robot-facing action (method call, method args only)
-      ↓
-RobotIntegrationAdapter.<method>()          (this phase)
-      ↓  _validate_optional_text()          (this phase, type-only)
-      ↓  build existing RobotCommand where needed  (this phase, using existing RobotCommand)
-      ↓
-existing RobotController.<wrapper>() / .execute()   (existing, unmodified)
-      ↓
-existing RobotBackend (SimulatedRobotBackend by default)  (existing, unmodified)
-```
+tests/
+├── ui/
+│   ├── __init__.py
+│   ├── test_isolation.py
+│   ├── test_renderer.py
+│   ├── test_route_display.py
+│   └── test_view_models.py
+│
+├── speech/
+│   ├── __init__.py
+│   ├── test_conversation.py
+│   ├── test_isolation.py
+│   └── test_language.py
+│
+├── test_robot.py
+├── test_guide.py
+├── test_interaction_scenarios.py
+├── test_robot_gestures.py
+└── test_robot_integration_adapter.py
 
-`RobotIntegrationAdapter` holds a `RobotController` instance by
-composition (constructor parameter, defaulting to `RobotController()`)
-and never constructs or talks to a `RobotBackend` directly — every
-method ultimately calls an existing `RobotController` public method,
-exactly matching "must not bypass `RobotController`" / "must not
-create a second Robot command system."
-
-## 9. Supported adapter methods
-
-One method per existing `RobotCommandType` member (9 total, no gaps,
-no extras):
-
-| Adapter method | Existing Robot API used |
-|---|---|
-| `execute_greeting()` | `RobotController.greet()` |
-| `wave()` | `RobotController.wave()` |
-| `speak(text)` | `RobotController.speak(text)` |
-| `idle()` | `RobotController.idle()` |
-| `stop()` | `RobotController.stop()` |
-| `explain_ai(text)` | `RobotController.execute(RobotCommand(EXPLAIN_AI, text=text))` |
-| `explain_robotics(text)` | `RobotController.execute(RobotCommand(EXPLAIN_ROBOTICS, text=text))` |
-| `explain_training(text)` | `RobotController.execute(RobotCommand(EXPLAIN_TRAINING, text=text))` |
-| `explain_lab(text)` | `RobotController.execute(RobotCommand(EXPLAIN_LAB, text=text))` |
-
-## 10. Unsupported actions and why
-
-The phase brief's conceptual examples included `show_navigation_step(...)`
-and `show_arrival()`. Neither was implemented:
-
-- **`show_navigation_step(...)`** — `app.navigation.service` is an
-  explicit, documented placeholder ("PLACEHOLDER — not implemented in
-  this phase") with no executable logic, and no existing
-  `RobotCommandType` corresponds to a navigation step. There is
-  nothing existing to translate this action into.
-- **`show_arrival()`** — no existing `RobotCommandType` unambiguously
-  represents "arrival." `STOP` and `IDLE` are both plausible but
-  semantically different guesses (this is the same ambiguity already
-  identified and documented for the `ARRIVED` gesture in the prior
-  Robot Gestures phase's `PHASE_REPORT.md`/`docs/robot_gestures.md`);
-  picking either here would repeat that same unjustified guess at the
-  adapter layer.
-
-Per the strict change rules, no new `RobotCommandType` was added and
-neither method was implemented with a best-guess mapping. Verified by
-`tests/test_robot_integration_adapter.py::TestUnsupportedActionsAreNotExposed`
-(`hasattr(adapter, "show_navigation_step")` and
-`hasattr(adapter, "show_arrival")` are both `False`).
-
-## 11. Files added
-
-- `app/integration/__init__.py`
-- `app/integration/robot_adapter.py`
-- `tests/test_robot_integration_adapter.py`
-- `docs/robot_integration_adapter.md`
-- `PHASE_REPORT.md` (this file — supersedes the prior phase's
-  `PHASE_REPORT.md`, which remains available inside
-  `robot-gestures-phase.tar.gz` from that phase)
-- `robot-integration-adapter-phase.tar.gz`
-
-## 12. Exact list of existing files modified
-
-**None.**
-
-## 13. Explicit confirmation that protected modules were not modified
-
-**Confirmed.** `app/vision/`, `app/ml/`, `app/dl/`, `app/navigation/`,
-`app/decision/`, `app/guide/`, `app/main.py`, and `app/config.py` were
-not modified (verified with a recursive diff against a fresh
-extraction of the uploaded ZIP — see section 18). This also confirms
-the Robot Gestures phase's own deliverables
-(`app/robot/gesture_*.py`, `tests/test_robot_gestures.py`,
-`docs/robot_gestures.md`) from the prior phase were left untouched by
-this phase.
-
-## 14. Explicit confirmation that `app/main.py` was not modified
-
-**Confirmed.** `app/main.py` is byte-for-byte unchanged and remains
-the project's only orchestration layer. The adapter is not called from
-`app.main` in this phase.
-
-## 15. Explicit confirmation that `app/robot/` was or was not modified
-
-**Confirmed: `app/robot/` was not modified by this phase.**
-`app/robot/robot_commands.py`, `app/robot/robot_controller.py`, and
-`app/robot/__init__.py` are byte-for-byte unchanged from the uploaded
-ZIP. (The three gesture files added under `app/robot/` in the prior
-Robot Gestures phase — `gesture_definitions.py`, `gesture_mapper.py`,
-`gesture_controller.py` — are also unchanged; they were not touched by
-this phase and are not part of this phase's deliverables.)
-
-## 16. Tests added
-
-`tests/test_robot_integration_adapter.py` — 41 tests, covering:
-
-- Module imports.
-- Adapter initialization (default and injected `RobotController`).
-- All nine supported actions (correct `RobotCommandType`, `success=True`
-  against the default simulated backend), plus a check that exactly
-  one adapter method exists per existing `RobotCommandType` member.
-- Unsupported conceptual actions (`show_navigation_step`,
-  `show_arrival`) confirmed absent via `hasattr`.
-- Input validation (`AdapterError` for non-`str`/non-`None` text on
-  `speak()` and `explain_ai()`; `None` and empty/whitespace text are
-  *not* rejected by the adapter and are forwarded to the existing
-  controller, which reports them as a safe `success=False`).
-- Backend failure handling (a raising `RobotBackend` is reported as
-  `success=False`, never propagated, for both a direct wrapper call
-  and an `explain_*` call).
-- `RobotController` compatibility (existing `RobotCommandType` values
-  unchanged; an adapter-issued greeting matches a direct
-  `RobotController.greet()` call in shape; the adapter returns the
-  existing `RobotExecutionResult` type directly rather than a new
-  wrapper type; actions reach the shared backend's `history`).
-- Adapter does not bypass `RobotController` (no `RobotBackend(` /
-  `SimulatedRobotBackend(` construction in the adapter's own source;
-  all `_EXPLAIN_COMMAND_TYPES` are members of the existing
-  `RobotCommandType`; `_explain()` rejects a non-`EXPLAIN_*` command
-  type).
-- Hardware/network independence (adapter works with zero hardware; AST
-  check confirms no `socket`/`serial`/`requests`/`urllib` imports).
-- Dependency isolation (AST-verified: no `app.vision`/`app.ml`/`app.dl`
-  imports at all; no `app.decision`/`app.guide`/`app.navigation`/
-  `app.main` imports either).
-- No-circular-imports check (full project import graph, including this
-  phase's new modules alongside every existing module, including the
-  prior phase's gesture modules).
-- Deterministic repeat execution.
-
-## 17. Existing Robot tests left unchanged
-
-All pre-existing test files, including `tests/test_robot.py` and the
-prior phase's `tests/test_robot_gestures.py`, are byte-for-byte
-unchanged — confirmed by the same recursive diff referenced in
-section 18.
-
-## 18. Dependency isolation verification
-
-`app/integration/__init__.py` and `app/integration/robot_adapter.py`
-import only: the Python standard library, the existing `app.robot`
-public API (`RobotCommand`, `RobotCommandType`, `RobotController`,
-`RobotExecutionResult`), and `app.utils.logger`. AST inspection
-(`tests/test_robot_integration_adapter.py::TestDependencyIsolation`)
-confirms zero imports of `app.vision`, `app.ml`, `app.dl` (strictly
-forbidden — none found) and zero imports of `app.decision`,
-`app.guide`, `app.navigation`, `app.main` (discouraged — none found;
-not needed since every adapter method receives its data, e.g. `text`,
-as a plain argument rather than fetching it from another workstream).
-
-## 19. Circular import verification
-
-Verified by direct import of every module (existing and new,
-including both phases' additions) in one process, and independently by
-`tests/test_robot_integration_adapter.py::TestNoCircularImports`:
-
-```
-app.robot, app.robot.robot_commands, app.robot.robot_controller,
-app.integration, app.integration.robot_adapter, app.vision,
-app.decision, app.guide, app.navigation, app.models, app.config,
-app.utils.logger, app.main
+docs/
+├── robot_gestures.md
+├── robot_integration_adapter.md
+└── speech_conversation.md
 ```
 
-All import cleanly together — no circular import errors.
+No duplicate active packages remain at the repository root. `ui/`,
+`speech/`, `gesture_controller.py`, `gesture_definitions.py`,
+`gesture_mapper.py`, `robot_adapter.py`, and the repo-root `__init__.py`
+no longer exist anywhere in the tree.
 
-## 20. Hardware isolation verification
+---
 
-`RobotIntegrationAdapter()` with no arguments requires no physical
-robot, no Robot SDK, no network, and no external API — it defaults to
-wrapping `RobotController()`, which itself defaults to the existing
-hardware-free `SimulatedRobotBackend`. Verified by
-`TestHardwareAndNetworkIndependence` (adapter operates end-to-end with
-zero hardware) and by AST inspection confirming neither adapter file
-imports `socket`, `serial`, `requests`, or `urllib`.
+## Test Matrix
 
-## 21. Final full pytest result
+Commands run (from `ai-university-lab-guide/`, `PYTHONPATH=.`):
+```
+python3 -m pytest -q                              # full suite
+python3 -m pytest tests/ui -q
+python3 -m pytest tests/speech -q
+python3 -m pytest tests/test_robot_gestures.py -q
+python3 -m pytest tests/test_robot_integration_adapter.py -q
+```
+Full raw output: `validation/full_suite.txt`,
+`validation/targeted_person2_tests.txt`, `validation/collect_only.txt`,
+`validation/fresh_venv_full_suite.txt` (clean venv, see Fresh
+Environment Validation below).
+
+| Suite | Owner | Collected | Passed | Failed | Skipped | Errors | Status |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `tests/test_robot.py` | P2 | 31 | 31 | 0 | 0 | 0 | PASS |
+| `tests/test_guide.py` | P2 | 19 | 19 | 0 | 0 | 0 | PASS |
+| `tests/test_interaction_scenarios.py` | P2 | 33 | 33 | 0 | 0 | 0 | PASS |
+| `tests/ui/` (4 files) | P2 | 56 | 56 | 0 | 0 | 0 | PASS |
+| `tests/speech/` (3 files) | P2 | 61 | 61 | 0 | 0 | 0 | PASS |
+| `tests/test_robot_gestures.py` | P2 | 46 | 46 | 0 | 0 | 0 | PASS |
+| `tests/test_robot_integration_adapter.py` | P2 | 41 | 41 | 0 | 0 | 0 | PASS |
+| `tests/test_vision.py` | P1 | 13 | 11 | 0 | 2 | 0 | PASS (2 skipped: missing optional fixture photos, pre-existing, unrelated to Person 2 — see `tests/fixtures/README.md`) |
+| `tests/test_camera.py` | P1 | 8 | 8 | 0 | 0 | 0 | PASS |
+| `tests/test_config.py` | P1 | 35 | 35 | 0 | 0 | 0 | PASS |
+| `tests/test_decision.py` | P1 | 28 | 28 | 0 | 0 | 0 | PASS |
+| `tests/test_models.py` | shared | 15 | 15 | 0 | 0 | 0 | PASS |
+| `tests/test_integration.py` | shared (`app.main`) | 25 | 25 | 0 | 0 | 0 | PASS |
+| **TOTAL (`python3 -m pytest -q`, actual repo root, no `--ignore`)** | | **411** | **409** | **0** | **2** | **0** | **PASS** |
 
 ```
-$ python -m pytest -q --ignore=ai-university-lab-guide
-306 passed, 2 skipped, 16 warnings in 2.87s
+$ cd ai-university-lab-guide && PYTHONPATH=. python3 -m pytest -q
+409 passed, 2 skipped in 0.56s
 ```
 
-(`--ignore=ai-university-lab-guide` excludes only the pre-existing
-duplicate nested copy described in section 1 — unrelated to this
-phase and not modified. The 2 skips are pre-existing and unrelated.
-The full suite — including the prior phase's 46 gesture tests and this
-phase's 41 new adapter tests — passes cleanly.)
+Zero collection errors. Zero failures. This number was produced by
+running the suite from the actual repository root with no `--ignore`
+flags — the failure mode that undermined the previous phase's
+self-reported results.
 
-## 22. Final test count
+### Order-dependency verification
+- Full suite run in default (alphabetical-ish, pytest default) file
+  order: 409 passed, 2 skipped.
+- Full suite re-run with `tests/speech` collected first (originally the
+  file order that exposed the bug in Changes Made #8): 409 passed, 2
+  skipped — same result, confirming the fix.
+- `tests/test_robot_gestures.py` + `tests/test_robot_integration_adapter.py`
+  run together in both orders: 87 passed in each direction.
+- No further order-dependent failures found. No test in the current
+  suite mutates `sys.modules`, environment variables, working directory,
+  or shared/global state without restoring it (re-audited after the fix
+  in Changes Made #8).
 
-- Before this phase (i.e. after the Robot Gestures phase): 265 passed,
-  2 skipped (267 collected).
-- After this phase: 306 passed, 2 skipped (308 collected).
-- Added by this phase: 41 tests, all passing.
+---
 
-## 23. Integration gaps
+## Import Audit
 
-- **`show_navigation_step(...)`** — blocked on `app.navigation` being
-  an unimplemented placeholder with no public contract to translate
-  against, and on no existing `RobotCommandType` representing a
-  navigation step. Resolving this would require both a
-  `NavigationService` implementation (out of scope: `app.navigation`
-  is protected) and a new `RobotCommandType` member (out of scope:
-  requires separate approval per the strict change rules).
-- **`show_arrival()`** — blocked on ambiguity between `STOP` and
-  `IDLE` as the closest existing command types, neither of which the
-  existing Robot contract documents as meaning "arrived." Resolving
-  this would require either an explicit, separately-approved decision
-  about which existing command type "arrival" should map to, or a new
-  `RobotCommandType` member added to `app/robot/robot_commands.py`
-  with explicit approval — neither of which this phase is authorized
-  to do unilaterally.
-
-No change to `app/robot/`, `Decision`, `Guide`, `Navigation`, or
-`app.main` was required or made to implement this phase — the adapter
-is usable standalone (`RobotIntegrationAdapter()`), and wiring it into
-`app.main`'s orchestration is left for a future, separately-scoped
-integration phase, consistent with "Future integration into `main.py`
-is outside this phase."
-
-## 24. Limitations
-
-- Only the nine existing `RobotCommandType`-backed actions are
-  exposed; navigation-step and arrival announcements are not currently
-  translatable (see section 23).
-- The adapter is not wired into `app.main.ApplicationIntegration` — it
-  is available for a future phase to adopt, following the same
-  construction pattern `app.main` already uses for `RobotController`
-  today (see `docs/robot_integration_adapter.md`, "Future integration
-  expectations").
-- The adapter's own input validation is limited to type-checking `text`
-  arguments; it deliberately does not re-implement the existing
-  content-level validation (empty/whitespace text) already performed
-  by `RobotController.execute()`, to avoid two possibly-divergent
-  copies of that logic.
-- This phase does not interact with, extend, or depend on the prior
-  Robot Gestures phase's `app/robot/gesture_*` modules — the two
-  phases are independent and additive; nothing here requires them to
-  be present.
-
-## 25. Archive validation result
-
-`robot-integration-adapter-phase.tar.gz` was created containing only
-this phase's deliverables and validated by listing its contents (see
-command output captured at archive-creation time):
+Method: AST-based (`ast.parse`/`ast.walk`), re-run after the
+restructure, against all 37 files now in Person 2's canonical
+locations. Script: `validation/import_isolation_audit.py`.
 
 ```
-__init__.py
-robot_adapter.py
-test_robot_integration_adapter.py
-robot_integration_adapter.md
-PHASE_REPORT.md
+Forbidden imports (app.vision/app.ml/app.dl/app.navigation/app.main): 0
+Stale root-level imports (speech/ui/gesture_*/robot_adapter as
+    top-level modules, i.e. leftover references to the old broken
+    locations): 0
+Circular imports: 0
+Import-time side effects: 0
 ```
 
-No full repository, `.git/`, virtual environment, cache,
-`__pycache__/`, unrelated application module, unrelated test,
-unrelated documentation, protected module, or copy of the existing
-Robot implementation is included. The prior phase's gesture files
-(`app/robot/gesture_*.py`) are also correctly excluded, since they are
-not part of this phase's deliverables.
+Additionally verified (not just asserted) that imports work
+independent of current working directory or accidental `sys.path`
+magic:
+```python
+# From the repository root, with PYTHONPATH explicitly set to the
+# project directory (no reliance on an implicit cwd insert):
+import app.speech, app.ui, app.robot, app.robot.gesture_controller, app.integration, app.guide
+# -> imports cleanly
+
+# From inside ai-university-lab-guide/, with only "." added to sys.path
+# programmatically (no PYTHONPATH env var):
+import app.speech, app.ui, app.robot, app.integration, app.guide
+# -> imports cleanly
+```
+
+---
+
+## Contract Audit
+
+**Public APIs used by Person 2, and their boundary dependencies:**
+
+| Module | Public API (unchanged from prior phase) | Depends on |
+| --- | --- | --- |
+| `app.robot` | `RobotCommand`, `RobotCommandType`, `RobotController`, `RobotBackend`, `SimulatedRobotBackend`, `RobotExecutionResult`, `RobotError` | stdlib, `app.utils.logger` only |
+| `app.robot.gesture_definitions` | `GestureIntent`, `GestureRequest`, `GestureResult`, `GestureError` | stdlib only |
+| `app.robot.gesture_mapper` | gesture → `RobotCommandType` translation | `app.robot.gesture_definitions`, `app.robot.robot_commands` |
+| `app.robot.gesture_controller` | `GestureController` | `app.robot.gesture_mapper`, `app.robot.robot_controller` (via injected `RobotController`, never a raw backend) |
+| `app.guide` | `GuideService`, `GuideResponse` | `app.decision.event_manager.GuideTopic` (read-only), `app.guide.content` |
+| `app.ui` | `view_models` (`SystemStatus`, `GuideContentView`, `RouteView`, ...), `route_display`, `renderer.TextRenderer`, `guide_ui` | `app.guide.guide_service.GuideResponse` only |
+| `app.speech` | `ConversationService`, `ConversationInput`, `ConversationResponse`, `ConversationResponseType`, `ConversationContext`, `IntentType`, `Language`, `PhraseKey` | stdlib only — **new in this phase:** `IntentType` is Speech-owned (`app.speech.intent`), not imported from any other module |
+| `app.integration` | `RobotIntegrationAdapter`, `AdapterError` | `app.robot` (public API only — `RobotCommand`, `RobotCommandType`, `RobotController`, `RobotExecutionResult`), `app.utils.logger` |
+
+**Matching:** `RobotCommandType`, `RobotCommand`, `RobotExecutionResult`,
+`GuideResponse`, and the gesture vocabulary all match
+`docs/contracts.md` / `docs/integration_contract.md` exactly, as they
+did before this phase — none of them were touched.
+
+**Resolved this phase:** `IntentType` (previously a `CONTRACT MISMATCH`
+— imported from a module where it didn't exist) is now defined once, in
+`app.speech.intent`, and used consistently by `app.speech.conversation`
+and `tests/speech/test_conversation.py`. No duplicate definition exists
+elsewhere.
+
+**Newly documented (not previously covered):** `app.speech`'s
+package-level public API (`app/speech/__init__.py`) — was empty before
+this phase; now explicitly re-exports the 8 names listed above,
+matching what `conversation.py`'s own docstring and
+`tests/speech/test_conversation.py` already expected.
+
+**No ambiguous contracts remain.**
+
+---
+
+## Integration Readiness
+
+A future orchestrator can consume each Person 2 component through a
+stable, documented interface without reaching into internal
+implementation details:
+
+- **UI:** `from app.ui import route_display, renderer` (or
+  `app.ui.guide_ui`) — feed it an `app.guide.guide_service.GuideResponse`
+  (already-decided content) and get back display-ready view models /
+  rendered text. UI never needs to know how that `GuideResponse` was
+  produced.
+- **Speech:** `from app.speech import ConversationService,
+  ConversationInput` — call `ConversationService().handle(ConversationInput(text=...))`
+  and get back a `ConversationResponse` with plain-text `spoken_text`.
+  An orchestrator that already has an externally-computed intent can
+  pass it in via `ConversationInput`'s optional intent field without
+  Speech ever importing the classifier that produced it.
+- **Gestures:** `from app.robot.gesture_controller import
+  GestureController` — construct with an injected `RobotController`
+  (defaulting to the existing simulated backend for tests), call
+  `execute_gesture(GestureRequest(GestureIntent.WAVE))`, get back a
+  `GestureResult`. Gestures never construct their own backend.
+- **Robot Integration Adapter:** `from app.integration import
+  RobotIntegrationAdapter, AdapterError` — the intended entry point for
+  a future orchestrator to drive `app.robot` through one stable
+  boundary, without the orchestrator needing to know
+  `RobotController`'s internals.
+
+Each of these can be exercised today with zero hardware, zero network
+access, and zero dependency on any Person 1 module (verified by the
+Import Audit above and by the existing isolation test suites in
+`tests/ui/test_isolation.py` and `tests/speech/test_isolation.py`, both
+of which passed).
+
+No component starts the application or imports `app.main`. No component
+depends on another component's private/internal details rather than its
+public API. No hardcoded machine-specific paths were found in any
+Person 2 file (re-checked during this phase).
+
+**Integration Readiness: READY.**
+
+---
+
+## Fresh Environment Validation
+
+A new, empty virtual environment was created and `requirements.txt`
+installed into it from scratch (not reusing any pre-existing
+environment):
+```
+$ python3 -m venv fresh_venv
+$ fresh_venv/bin/pip install -r requirements.txt
+$ cd ai-university-lab-guide && PYTHONPATH=. fresh_venv/bin/python3 -m pytest -q
+409 passed, 2 skipped in 0.57s
+```
+Identical result to the working-environment run above. No
+environment/dependency-specific failures were found or masked — the
+409/2/0/0 result is not an artifact of a pre-warmed environment.
+
+---
+
+## Remaining Issues
+
+Only genuine, still-open issues are listed here; nothing is hidden.
+
+1. **`GuideService.get_location_info()` / `GuideResponse.location_id`**
+   (removed in an earlier, pre-existing commit, `1e6accb`) remain
+   absent. `app/guide/locations.py` (10 location records) is still
+   technically reachable only via `tests/test_interaction_scenarios.py`'s
+   direct import of `LOCATION_CONTENT`, not via any `GuideService`
+   method. This does not block integration readiness — the suite passes
+   as currently written, and it is **out of scope for this phase**
+   (touching `app/guide/guide_service.py`'s public method surface was
+   not part of the blocker list this phase was asked to fix, and doing
+   so unprompted would risk exactly the "modify unrelated scope to hide
+   packaging errors" outcome this task explicitly forbids). Recommend a
+   follow-up phase intentionally decide whether to restore
+   `get_location_info()` or retire `locations.py`.
+2. **`tests/test_robot.py`'s deleted extensibility/immutability test
+   classes** (`TestBackendAbstractionEnforcement`,
+   `TestBackendIsolation`, `TestExtensibilityWithoutContractChanges`,
+   `TestContractImmutability`, removed in commit `e6d0a02`) were not
+   restored in this phase, for the same out-of-scope reason as above.
+   `RobotController`'s backend abstraction still appears sound by
+   inspection, but is no longer executably pinned by a test. Recommend
+   a follow-up phase restore this coverage.
+3. **`PHASE_REPORT.md`'s prior "306 passed" claim** (from the
+   commit-`5143f5c` version of this file, now superseded by this
+   document) was based on a run that excluded the entire project
+   directory and should not be treated as historical evidence of
+   anything about this codebase. This document supersedes it.
+
+None of the above are blockers to integration readiness; all three are
+called out explicitly so they are not lost track of.
+
+---
+
+## Final Verdict
+
+**PERSON 2 STATUS: READY**

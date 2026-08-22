@@ -95,30 +95,53 @@ class TestNoRobotDependencyAtRuntime:
     def test_app_robot_not_imported_as_a_side_effect(self):
         # Reload app.speech in isolation and confirm app.robot was not
         # pulled in as a transitive import.
-        for name in list(sys.modules):
-            if name == "app.robot" or name.startswith("app.robot."):
-                del sys.modules[name]
+        #
+        # This removes app.robot* entries from sys.modules to force a
+        # fresh import below, so it must restore them afterward --
+        # leaving them deleted would corrupt global interpreter state
+        # for every test that runs later in the same session (e.g.
+        # anything holding a reference to an already-imported
+        # app.robot.* class and later calling inspect.getsource() on
+        # it, which requires sys.modules[cls.__module__] to still be
+        # present).
+        removed = {
+            name: sys.modules[name]
+            for name in list(sys.modules)
+            if name == "app.robot" or name.startswith("app.robot.")
+        }
+        for name in removed:
+            del sys.modules[name]
 
-        importlib.import_module("app.speech")
+        try:
+            importlib.import_module("app.speech")
 
-        assert not any(
-            name == "app.robot" or name.startswith("app.robot.")
-            for name in sys.modules
-        ), "app.speech import pulled in app.robot as a side effect"
+            assert not any(
+                name == "app.robot" or name.startswith("app.robot.")
+                for name in sys.modules
+            ), "app.speech import pulled in app.robot as a side effect"
+        finally:
+            sys.modules.update(removed)
 
 
 class TestNoMLDependencyAtRuntime:
     def test_app_ml_not_imported_as_a_side_effect(self):
-        for name in list(sys.modules):
-            if name == "app.ml" or name.startswith("app.ml."):
-                del sys.modules[name]
+        removed = {
+            name: sys.modules[name]
+            for name in list(sys.modules)
+            if name == "app.ml" or name.startswith("app.ml.")
+        }
+        for name in removed:
+            del sys.modules[name]
 
-        importlib.import_module("app.speech")
+        try:
+            importlib.import_module("app.speech")
 
-        assert not any(
-            name == "app.ml" or name.startswith("app.ml.")
-            for name in sys.modules
-        ), "app.speech import pulled in app.ml as a side effect"
+            assert not any(
+                name == "app.ml" or name.startswith("app.ml.")
+                for name in sys.modules
+            ), "app.speech import pulled in app.ml as a side effect"
+        finally:
+            sys.modules.update(removed)
 
 
 class TestOfflineDeterministicBehavior:
