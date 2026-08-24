@@ -1,0 +1,60 @@
+text,intent
+Where is the AI Lab?,NAVIGATION
+Where is the robotics lab located?,NAVIGATION
+How do I get to the library?,NAVIGATION
+Can you show me the way to the cafeteria?,NAVIGATION
+Which way is the AI Lab from here?,NAVIGATION
+How do I find the main entrance?,NAVIGATION
+Where can I find the lecture hall?,NAVIGATION
+Take me to the robotics lab please,NAVIGATION
+What's the fastest route to the library?,NAVIGATION
+Where is room 204?,NAVIGATION
+Point me to the nearest restroom,NAVIGATION
+How far is the cafeteria from here?,NAVIGATION
+Where is the exit?,NAVIGATION
+I need directions to the admin office,NAVIGATION
+Where do I go for the AI seminar?,NAVIGATION
+Which floor is the robotics lab on?,NAVIGATION
+Where is the elevator?,NAVIGATION
+Guide me to the AI Lab,NAVIGATION
+Tell me about the AI Lab,INFORMATION
+What is the AI Lab used for?,INFORMATION
+What research happens in the robotics lab?,INFORMATION
+Can you explain what this university does?,INFORMATION
+What kind of AI projects are being developed here?,INFORMATION
+Tell me about the robotics program,INFORMATION
+What equipment does the AI Lab have?,INFORMATION
+What is this robot capable of doing?,INFORMATION
+Can you describe the training programs offered?,INFORMATION
+What courses does the AI department offer?,INFORMATION
+Tell me more about the university's history,INFORMATION
+What technologies are used in this lab?,INFORMATION
+Explain how the face detection system works,INFORMATION
+What is the purpose of this project?,INFORMATION
+Give me information about the AI research group,INFORMATION
+What does the robotics team work on?,INFORMATION
+Where is the AI Lab and what can I do there?,COMBINED
+Can you tell me about the library and how to get there?,COMBINED
+Where is the robotics lab and what happens inside it?,COMBINED
+I want directions to the cafeteria and its opening hours,COMBINED
+Show me the way to the AI Lab and explain what it's for,COMBINED
+Where can I find the lecture hall and what classes are held there?,COMBINED
+Take me to the robotics lab and tell me about the equipment,COMBINED
+Where is the admin office and what services do they provide?,COMBINED
+How do I reach the AI seminar room and what is it about?,COMBINED
+Guide me to the lab and describe the current projects,COMBINED
+Where is the library and what services does it offer?,COMBINED
+Can you take me to the AI Lab and tell me what they research there?,COMBINED
+Where is the training room and what happens during sessions?,COMBINED
+I need help,HELP
+Can you help me?,HELP
+I'm not sure what to ask,HELP
+What can you do?,HELP
+I need assistance,HELP
+Help me please,HELP
+What are my options here?,HELP
+I don't know where to start,HELP
+Can you assist me with something?,HELP
+What should I ask you?,HELP
+"I'm lost, can you help",HELP
+Show me what you can help with,HELP
