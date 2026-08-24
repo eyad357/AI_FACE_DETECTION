@@ -68,6 +68,19 @@ Speech/Robot components — is cached for the whole session).
   plain language (Waving hello / Speaking / Explaining), sourced from
   `RobotPanelView.last_message` — never a fabricated status.
 
+## Voice feedback (browser-only)
+A small "🔊 Voice On / 🔇 Voice Off" + "🔁 Repeat" control sits at the
+top of the assistant screen. When on (the default), the browser's
+native `window.speechSynthesis` (`SpeechSynthesisUtterance`,
+`lang="en-US"`) speaks the visible answer for a guide topic, a
+navigation result, or a picked campus-map destination — nothing else
+triggers it. Nothing is spoken twice: the text-to-speak is popped from
+session state right after the browser script is emitted, so an
+unrelated rerun (typing in a box, an unrelated button) never replays
+it. No LLM, external TTS API, cloud service, or API key is involved —
+the browser does the speaking. Arabic responses are shown but not
+spoken (the control is English-only).
+
 ## What is intentionally not on this screen
 The "System Pipeline" indicator and internal per-subsystem status
 symbols from the earlier version were removed from this screen. That

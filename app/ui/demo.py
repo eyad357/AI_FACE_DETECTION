@@ -21,6 +21,7 @@ Launch:
 from __future__ import annotations
 
 import hashlib
+import json
 
 import cv2
 import numpy as np
@@ -30,6 +31,7 @@ from app.decision.event_manager import GuideTopic
 from app.models.schemas import DetectionResult
 from app.speech.language import Language
 from app.speech.response import ConversationResponseType
+from app.ui import campus_map
 from app.ui.dashboard_service import DashboardService
 
 st.set_page_config(
@@ -215,6 +217,75 @@ def _set_robot_status(action_key: str, message: str | None) -> None:
     friendly = _ROBOT_FRIENDLY.get(action_key, action_key.title())
     st.session_state["demo_robot_status"] = friendly
     st.session_state["demo_robot_message"] = message or ""
+
+
+# ---------------------------------------------------------------------------
+# Browser voice feedback (Web Speech API only -- no LLM/TTS API/cloud
+# service/API key of any kind; see module docstring section below).
+#
+# The browser, not this Python process, does the actual speaking:
+# ``render_voice_script()`` injects a tiny <script> that calls
+# window.speechSynthesis once per *user action*, then the pending text
+# is popped from session_state so an unrelated Streamlit rerun (typing
+# in a text box, an unrelated button) never replays the same sentence.
+# ---------------------------------------------------------------------------
+
+def _queue_speech(text: str | None) -> None:
+    """
+    Mark ``text`` to be spoken by the browser on this run only. Call
+    this exactly where a user action produces a new visible answer
+    (a guide answer, a navigation instruction, a destination pick) --
+    never unconditionally on every rerun.
+    """
+    if not text:
+        return
+    st.session_state["voice_last_text"] = text
+    st.session_state["voice_pending_text"] = text
+
+
+def render_voice_control() -> None:
+    """Small, subtle voice on/off + repeat control (no map/route state changes)."""
+    enabled = st.session_state.setdefault("voice_enabled", True)
+    cols = st.columns([1, 1, 3])
+    toggle_label = "🔊 Voice On" if enabled else "🔇 Voice Off"
+    if cols[0].button(toggle_label, key="voice_toggle", use_container_width=True):
+        st.session_state["voice_enabled"] = not enabled
+    if cols[1].button("🔁 Repeat", key="voice_repeat", use_container_width=True):
+        last = st.session_state.get("voice_last_text")
+        if last:
+            st.session_state["voice_pending_text"] = last
+
+
+def render_voice_script() -> None:
+    """
+    Speak the pending text (if any) in the user's browser via the
+    native Web Speech API and nothing else. Must run once, at the end
+    of the page render, after every button/ask handler above has had
+    a chance to queue speech for this run.
+    """
+    pending = st.session_state.pop("voice_pending_text", None)
+    if not pending or not st.session_state.get("voice_enabled", True):
+        return
+    safe_text = json.dumps(pending)
+    st.iframe(
+        f"""
+        <script>
+        (function() {{
+            try {{
+                var synth = window.speechSynthesis;
+                if (!synth) return;
+                synth.cancel();
+                var utter = new SpeechSynthesisUtterance({safe_text});
+                utter.lang = "en-US";
+                utter.rate = 1.0;
+                utter.pitch = 1.0;
+                synth.speak(utter);
+            }} catch (e) {{ /* no-op if speech synthesis is unsupported */ }}
+        }})();
+        </script>
+        """,
+        height=1,
+    )
 
 
 def render_header() -> None:
@@ -415,6 +486,7 @@ def _ask_topic(service: DashboardService, key: str) -> None:
             "text": content.spoken_text,
             "sections": content.sections,
         }
+        _queue_speech(content.spoken_text)
     else:
         st.session_state["demo_result"] = {"kind": "unavailable", "text": "That information isn't available right now."}
 
@@ -441,6 +513,11 @@ def _ask(service: DashboardService, text: str) -> None:
             "language": interaction.language,
         }
 
+    # Browser voice is English-only (window.speechSynthesis, lang="en-US");
+    # skip queuing speech for Arabic turns rather than mis-pronouncing them.
+    if interaction.language != Language.ARABIC.value:
+        _queue_speech(interaction.spoken_text)
+
 
 def render_welcome_card() -> None:
     st.markdown('<div class="lab-card">', unsafe_allow_html=True)
@@ -452,6 +529,73 @@ def render_welcome_card() -> None:
     status = st.session_state.get("demo_robot_status")
     if status:
         st.markdown(f'<div class="robot-status">🤖 &nbsp;{status}</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_campus_navigator() -> None:
+    """
+    "University Assistant" dashboard: a static, deterministic campus
+    map plus a keyword-driven place finder. Presentation-only -- see
+    app.ui.campus_map for why this is intentionally separate from the
+    real NavigationService used by render_actions()/render_result()
+    below.
+    """
+    st.markdown('<div class="lab-card">', unsafe_allow_html=True)
+    st.markdown('<div class="lab-h">University Assistant</div>', unsafe_allow_html=True)
+    st.markdown('<div class="lab-muted">How can I help you?</div>', unsafe_allow_html=True)
+
+    # Reserved now, filled in below once this run's button/ask
+    # interaction (if any) has updated the selected destination --
+    # keeps the map visually first while staying in sync within a
+    # single Streamlit rerun.
+    map_slot = st.empty()
+
+    st.markdown(
+        '<div class="lab-muted" style="margin-top:0.9rem;">Where would you like to go?</div>',
+        unsafe_allow_html=True,
+    )
+    cols = st.columns(3)
+    for i, dest in enumerate(campus_map.all_destinations()):
+        if cols[i % 3].button(dest.label, key=f"campus_btn_{dest.id}", use_container_width=True):
+            st.session_state["campus_destination"] = dest.id
+            st.session_state["campus_unknown"] = False
+            _queue_speech(dest.instruction)
+
+    query = st.text_input(
+        "Ask about a place",
+        value="",
+        placeholder="Ask about a place...",
+        key="campus_query",
+        label_visibility="collapsed",
+    )
+    if st.button("Ask →", key="campus_ask") and query.strip():
+        found = campus_map.resolve_destination(query)
+        if found:
+            st.session_state["campus_destination"] = found
+            st.session_state["campus_unknown"] = False
+            _queue_speech(campus_map.get_destination(found).instruction)
+        else:
+            st.session_state["campus_destination"] = None
+            st.session_state["campus_unknown"] = True
+            _queue_speech(campus_map.UNKNOWN_DESTINATION_MESSAGE)
+
+    selected = st.session_state.get("campus_destination")
+    map_slot.markdown(campus_map.render_map_svg(selected), unsafe_allow_html=True)
+
+    if selected:
+        dest = campus_map.get_destination(selected)
+        st.markdown('<div class="route-chain">', unsafe_allow_html=True)
+        st.markdown('<div class="route-node origin">📍 You are here</div>', unsafe_allow_html=True)
+        st.markdown('<div class="route-arrow">↓</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="route-node dest">🎯 {dest.label}</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="lab-muted" style="margin-top:0.5rem;">{dest.instruction}</div>',
+            unsafe_allow_html=True,
+        )
+    elif st.session_state.get("campus_unknown"):
+        st.warning(campus_map.UNKNOWN_DESTINATION_MESSAGE)
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -542,6 +686,8 @@ def render_footer() -> None:
                 "demo_stage", "demo_perception", "demo_greeted", "demo_robot_status",
                 "demo_robot_message", "demo_result", "demo_text",
                 "demo_photo_signature", "demo_photo_error",
+                "campus_destination", "campus_unknown", "campus_query",
+                "voice_last_text", "voice_pending_text",
             ):
                 st.session_state.pop(key, None)
             # Bump the camera widget key so a fresh st.camera_input
@@ -564,11 +710,14 @@ def main() -> None:
     if _stage() == "camera":
         render_camera_screen(service)
     else:
+        render_voice_control()
         render_welcome_card()
+        render_campus_navigator()
         render_actions(service)
         render_result()
 
     render_footer()
+    render_voice_script()
 
 
 if __name__ == "__main__":
